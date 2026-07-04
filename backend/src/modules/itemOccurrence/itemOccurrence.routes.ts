@@ -1,9 +1,16 @@
 import { Router } from 'express';
-import { createItemOccurrenceInput, updateItemOccurrenceInput } from '@ticktaskdone/shared';
+import {
+  createItemOccurrenceInput,
+  moveOccurrenceInput,
+  setOccurrenceStatusInput,
+  updateItemOccurrenceInput,
+} from '@ticktaskdone/shared';
 import { asyncHandler } from '../../middleware/errorHandler';
 import { validateBody } from '../../middleware/validate';
 import { notFound } from '../../http/errors';
 import { parseId } from '../../http/params';
+import * as occurrenceService from '../occurrence/occurrence.service';
+import { toTimeBlockDto } from '../timeBlock/timeBlock.mapper';
 import * as itemOccurrenceService from './itemOccurrence.service';
 import { toItemOccurrenceDto } from './itemOccurrence.mapper';
 
@@ -44,6 +51,38 @@ itemOccurrenceRouter.post(
       request.body,
     );
     response.status(201).json(toItemOccurrenceDto(row));
+  }),
+);
+
+// --- Phase 3 deviations: act on a slot (virtual or materialized), materializing
+// lazily. The slot is addressed by occurrenceDate in the body (null = the single
+// slot of a non-recurrent item). ---
+
+// Set status (complete = done, start = doing, reopen = todo, skip = cancelled).
+itemOccurrenceRouter.post(
+  '/status',
+  validateBody(setOccurrenceStatusInput),
+  asyncHandler(async (request, response) => {
+    const row = await occurrenceService.setOccurrenceStatus(
+      request.loadedItem,
+      request.currentUser.idUser,
+      request.body.occurrenceDate,
+      request.body.status,
+    );
+    response.json(toItemOccurrenceDto(row));
+  }),
+);
+
+// Move: materialize and place/replace the current user's timeBlock at a new time.
+itemOccurrenceRouter.post(
+  '/move',
+  validateBody(moveOccurrenceInput),
+  asyncHandler(async (request, response) => {
+    const moved = await occurrenceService.moveOccurrence(request.loadedItem, request.currentUser.idUser, request.body);
+    response.json({
+      occurrence: toItemOccurrenceDto(moved.occurrence),
+      timeBlocks: moved.timeBlocks.map(toTimeBlockDto),
+    });
   }),
 );
 

@@ -375,7 +375,7 @@ la Phase 5.
 > cycle dans un graphe est plus complexe qu'un parcours d'ascendance simple, et
 > les dépendances ne sont construites et testables qu'en Phase 7.
 
-### Phase 2 — Couche d'accès et premier CRUD backend
+### Phase 2 — Couche d'accès et premier CRUD backend ✅
 
 1. Définir la **structure d'un module** backend, cohérente pour toutes les
    entités : par entité (`category`, `project`, `item`, `itemOccurrence`), un
@@ -395,7 +395,7 @@ la Phase 5.
 5. **Helper de résolution de couleur** (cascade décrite en §7), côté backend ou
    partagé.
 
-### Phase 3 — Récurrence et occurrences (logique backend)
+### Phase 3 — Récurrence et occurrences (logique backend) ✅
 
 1. **Expansion des récurrences** : à partir de `item.rrule` + `recurrenceStart`,
    générer les occurrences virtuelles pour une fenêtre de dates donnée (via la
@@ -429,6 +429,15 @@ la Phase 5.
    calendrier.
 8. **Actions contextuelles** (clic droit / appui long) : toute fonction est
    accessible sans changer de vue.
+
+> **Décision produit à trancher ici (écran sous les yeux) :** faut-il
+> **matérialiser les occurrences récurrentes échues jamais touchées** pour
+> qu'elles génèrent des rappels ? Aujourd'hui, une série jamais actionnée
+> (« passer la balayeuse tous les vendredis » qu'on ignore) n'a aucune ligne,
+> donc aucun rappel — ce qui contredit la promesse « tout item todo en retard
+> est rappelé ». La piste : matérialiser en `todo` les slots échus dans
+> `runReminderMaintenance` (l'expansion jusqu'à `now` y existe déjà) avant
+> l'auto-annulation. À décider en voyant le volume de lignes et l'UX réels.
 
 > ✅ **Jalon MVP** atteint ici : calendrier web mono-utilisateur pleinement
 > utilisable.
@@ -541,3 +550,17 @@ la Phase 5.
 - **Drizzle en transition v1** : figer une version et suivre les notes de release.
 - **Hébergement de production** : ne retenir qu'un MySQL managé qui **applique les
   clés étrangères**.
+- **`GET` à effet de bord (rappels)** : `GET /reminders` et `GET /occurrences`
+  déclenchent `runReminderMaintenance`, qui **écrit** en base (auto-annulation).
+  Un `GET` est censé être sans effet de bord : tout rejeu (preflight, prefetch
+  navigateur, cache) provoquerait des annulations. Dette à résorber en sortant
+  la maintenance en **tâche planifiée** (cron) et en rendant ces deux routes
+  purement en lecture. La fonction est déjà isolée : déplacement, pas réécriture.
+- **Occurrence « fantôme » à l'ancre** : une occurrence récurrente matérialisée
+  dont le slot est dans la fenêtre mais dont le `timeBlock` a été déplacé hors
+  fenêtre est émise avec `timeBlocks: []`. Pas un bug de données, une nuance de
+  rendu à gérer côté calendrier en Phase 4.
+- **Fuseaux horaires** : `timezone: 'Z'` est forcé sur le pool mysql2 pour que
+  le round-trip `DATETIME` reste en UTC (sinon un décalage casserait le masquage
+  virtuel↔matérialisé et produirait des doublons). À retester dès que la base
+  tourne en conditions réelles.

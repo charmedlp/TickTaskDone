@@ -7,6 +7,8 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { categoryRouter } from './modules/category/category.routes';
 import { projectRouter } from './modules/project/project.routes';
 import { itemRouter } from './modules/item/item.routes';
+import { timeBlockRouter } from './modules/timeBlock/timeBlock.routes';
+import { occurrenceRouter, reminderRouter } from './modules/occurrence/occurrence.routes';
 
 const app = express();
 app.use(cors()); // dev : laisse le frontend Vite ET l'app Capacitor appeler l'API
@@ -22,6 +24,9 @@ const workspaceRouter = Router({ mergeParams: true });
 workspaceRouter.use('/categories', categoryRouter);
 workspaceRouter.use('/projects', projectRouter);
 workspaceRouter.use('/items', itemRouter);
+workspaceRouter.use('/timeblocks', timeBlockRouter);
+workspaceRouter.use('/occurrences', occurrenceRouter);
+workspaceRouter.use('/reminders', reminderRouter);
 app.use('/workspaces/:workspaceId', currentUser, scopeWorkspace, workspaceRouter);
 
 // Unmatched routes and centralized error handling — must come last.

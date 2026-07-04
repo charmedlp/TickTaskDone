@@ -9,9 +9,14 @@ export * from './validation/category.validation';
 export * from './validation/project.validation';
 export * from './validation/item.validation';
 export * from './validation/itemOccurrence.validation';
+export * from './validation/timeBlock.validation';
+export * from './validation/occurrence.validation';
 
 // DTO contracts
 export * from './dto/category.dto';
 export * from './dto/project.dto';
 export * from './dto/item.dto';
 export * from './dto/itemOccurrence.dto';
+export * from './dto/timeBlock.dto';
+export * from './dto/occurrenceView.dto';
+export * from './dto/reminder.dto';
