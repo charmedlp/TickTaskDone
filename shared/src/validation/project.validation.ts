@@ -1,0 +1,19 @@
+import { z } from 'zod';
+
+export const projectStatuses = ['active', 'onHold', 'done', 'cancelled', 'archived'] as const;
+export type ProjectStatus = (typeof projectStatuses)[number];
+
+// Workspace scope comes from the URL, never the body — so it is absent here.
+export const createProjectInput = z.object({
+  parentProjectId: z.number().int().positive().nullable(),
+  name: z.string().min(1).max(255),
+  color: z.string().min(1).max(30),
+  income: z.number().nonnegative().optional(),
+  status: z.enum(projectStatuses).optional(),
+});
+
+export type CreateProjectInput = z.infer<typeof createProjectInput>;
+
+export const updateProjectInput = createProjectInput.partial();
+
+export type UpdateProjectInput = z.infer<typeof updateProjectInput>;
