@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1783178934108,
+      "tag": "0000_red_dreaming_celestial",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1783184599410,
+      "tag": "0001_integrity_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1783185083549,
+      "tag": "0002_audit_fks",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,1399 @@
+{
+  "version": "5",
+  "dialect": "mysql",
+  "id": "3e73b67a-c409-400a-88ed-2e2dd57961f8",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "category": {
+      "name": "category",
+      "columns": {
+        "idCategory": {
+          "name": "idCategory",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "workspaceId": {
+          "name": "workspaceId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "parentCategoryId": {
+          "name": "parentCategoryId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "color": {
+          "name": "color",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "category_workspace_idx": {
+          "name": "category_workspace_idx",
+          "columns": [
+            "workspaceId"
+          ],
+          "isUnique": false
+        },
+        "category_parent_idx": {
+          "name": "category_parent_idx",
+          "columns": [
+            "parentCategoryId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "category_workspaceId_workspace_idWorkspace_fk": {
+          "name": "category_workspaceId_workspace_idWorkspace_fk",
+          "tableFrom": "category",
+          "tableTo": "workspace",
+          "columnsFrom": [
+            "workspaceId"
+          ],
+          "columnsTo": [
+            "idWorkspace"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "category_parentCategoryId_category_idCategory_fk": {
+          "name": "category_parentCategoryId_category_idCategory_fk",
+          "tableFrom": "category",
+          "tableTo": "category",
+          "columnsFrom": [
+            "parentCategoryId"
+          ],
+          "columnsTo": [
+            "idCategory"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "category_idCategory": {
+          "name": "category_idCategory",
+          "columns": [
+            "idCategory"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "item": {
+      "name": "item",
+      "columns": {
+        "idItem": {
+          "name": "idItem",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "workspaceId": {
+          "name": "workspaceId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "enum('task','event')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "color": {
+          "name": "color",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "estimatedMinutes": {
+          "name": "estimatedMinutes",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rrule": {
+          "name": "rrule",
+          "type": "varchar(1000)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "recurrenceStart": {
+          "name": "recurrenceStart",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "item_workspace_idx": {
+          "name": "item_workspace_idx",
+          "columns": [
+            "workspaceId"
+          ],
+          "isUnique": false
+        },
+        "item_project_idx": {
+          "name": "item_project_idx",
+          "columns": [
+            "projectId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "item_workspaceId_workspace_idWorkspace_fk": {
+          "name": "item_workspaceId_workspace_idWorkspace_fk",
+          "tableFrom": "item",
+          "tableTo": "workspace",
+          "columnsFrom": [
+            "workspaceId"
+          ],
+          "columnsTo": [
+            "idWorkspace"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "item_projectId_project_idProject_fk": {
+          "name": "item_projectId_project_idProject_fk",
+          "tableFrom": "item",
+          "tableTo": "project",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "idProject"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "item_idItem": {
+          "name": "item_idItem",
+          "columns": [
+            "idItem"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {
+        "item_recurrence_pairing": {
+          "name": "item_recurrence_pairing",
+          "value": "(`item`.`rrule` IS NULL AND `item`.`recurrenceStart` IS NULL) OR (`item`.`rrule` IS NOT NULL AND `item`.`recurrenceStart` IS NOT NULL)"
+        }
+      }
+    },
+    "itemCategory": {
+      "name": "itemCategory",
+      "columns": {
+        "idItemCategory": {
+          "name": "idItemCategory",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "itemId": {
+          "name": "itemId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "categoryId": {
+          "name": "categoryId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "itemCategory_unique": {
+          "name": "itemCategory_unique",
+          "columns": [
+            "itemId",
+            "categoryId"
+          ],
+          "isUnique": true
+        },
+        "itemCategory_category_idx": {
+          "name": "itemCategory_category_idx",
+          "columns": [
+            "categoryId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "itemCategory_itemId_item_idItem_fk": {
+          "name": "itemCategory_itemId_item_idItem_fk",
+          "tableFrom": "itemCategory",
+          "tableTo": "item",
+          "columnsFrom": [
+            "itemId"
+          ],
+          "columnsTo": [
+            "idItem"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "itemCategory_categoryId_category_idCategory_fk": {
+          "name": "itemCategory_categoryId_category_idCategory_fk",
+          "tableFrom": "itemCategory",
+          "tableTo": "category",
+          "columnsFrom": [
+            "categoryId"
+          ],
+          "columnsTo": [
+            "idCategory"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "itemCategory_idItemCategory": {
+          "name": "itemCategory_idItemCategory",
+          "columns": [
+            "idItemCategory"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "itemDependency": {
+      "name": "itemDependency",
+      "columns": {
+        "idItemDependency": {
+          "name": "idItemDependency",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "itemId": {
+          "name": "itemId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "dependsOnItemId": {
+          "name": "dependsOnItemId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "itemDependency_unique": {
+          "name": "itemDependency_unique",
+          "columns": [
+            "itemId",
+            "dependsOnItemId"
+          ],
+          "isUnique": true
+        },
+        "itemDependency_prereq_idx": {
+          "name": "itemDependency_prereq_idx",
+          "columns": [
+            "dependsOnItemId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "itemDependency_itemId_item_idItem_fk": {
+          "name": "itemDependency_itemId_item_idItem_fk",
+          "tableFrom": "itemDependency",
+          "tableTo": "item",
+          "columnsFrom": [
+            "itemId"
+          ],
+          "columnsTo": [
+            "idItem"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "itemDependency_dependsOnItemId_item_idItem_fk": {
+          "name": "itemDependency_dependsOnItemId_item_idItem_fk",
+          "tableFrom": "itemDependency",
+          "tableTo": "item",
+          "columnsFrom": [
+            "dependsOnItemId"
+          ],
+          "columnsTo": [
+            "idItem"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "itemDependency_idItemDependency": {
+          "name": "itemDependency_idItemDependency",
+          "columns": [
+            "idItemDependency"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {
+        "no_self_dependency": {
+          "name": "no_self_dependency",
+          "value": "`itemDependency`.`itemId` <> `itemDependency`.`dependsOnItemId`"
+        }
+      }
+    },
+    "itemOccurrence": {
+      "name": "itemOccurrence",
+      "columns": {
+        "idItemOccurrence": {
+          "name": "idItemOccurrence",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "itemId": {
+          "name": "itemId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "occurrenceDate": {
+          "name": "occurrenceDate",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('todo','doing','done','cancelled')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'todo'"
+        },
+        "dueDate": {
+          "name": "dueDate",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "itemOccurrence_slot_unique": {
+          "name": "itemOccurrence_slot_unique",
+          "columns": [
+            "itemId",
+            "occurrenceDate"
+          ],
+          "isUnique": true
+        },
+        "itemOccurrence_reminder_idx": {
+          "name": "itemOccurrence_reminder_idx",
+          "columns": [
+            "status",
+            "dueDate"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "itemOccurrence_itemId_item_idItem_fk": {
+          "name": "itemOccurrence_itemId_item_idItem_fk",
+          "tableFrom": "itemOccurrence",
+          "tableTo": "item",
+          "columnsFrom": [
+            "itemId"
+          ],
+          "columnsTo": [
+            "idItem"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "itemOccurrence_idItemOccurrence": {
+          "name": "itemOccurrence_idItemOccurrence",
+          "columns": [
+            "idItemOccurrence"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "project": {
+      "name": "project",
+      "columns": {
+        "idProject": {
+          "name": "idProject",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "workspaceId": {
+          "name": "workspaceId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "parentProjectId": {
+          "name": "parentProjectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "color": {
+          "name": "color",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "income": {
+          "name": "income",
+          "type": "decimal(10,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0'"
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('active','onHold','done','cancelled','archived')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "project_workspace_idx": {
+          "name": "project_workspace_idx",
+          "columns": [
+            "workspaceId"
+          ],
+          "isUnique": false
+        },
+        "project_parent_idx": {
+          "name": "project_parent_idx",
+          "columns": [
+            "parentProjectId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "project_workspaceId_workspace_idWorkspace_fk": {
+          "name": "project_workspaceId_workspace_idWorkspace_fk",
+          "tableFrom": "project",
+          "tableTo": "workspace",
+          "columnsFrom": [
+            "workspaceId"
+          ],
+          "columnsTo": [
+            "idWorkspace"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "project_parentProjectId_project_idProject_fk": {
+          "name": "project_parentProjectId_project_idProject_fk",
+          "tableFrom": "project",
+          "tableTo": "project",
+          "columnsFrom": [
+            "parentProjectId"
+          ],
+          "columnsTo": [
+            "idProject"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "project_idProject": {
+          "name": "project_idProject",
+          "columns": [
+            "idProject"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "projectCategory": {
+      "name": "projectCategory",
+      "columns": {
+        "idProjectCategory": {
+          "name": "idProjectCategory",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "categoryId": {
+          "name": "categoryId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "projectCategory_unique": {
+          "name": "projectCategory_unique",
+          "columns": [
+            "projectId",
+            "categoryId"
+          ],
+          "isUnique": true
+        },
+        "projectCategory_category_idx": {
+          "name": "projectCategory_category_idx",
+          "columns": [
+            "categoryId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "projectCategory_projectId_project_idProject_fk": {
+          "name": "projectCategory_projectId_project_idProject_fk",
+          "tableFrom": "projectCategory",
+          "tableTo": "project",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "idProject"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "projectCategory_categoryId_category_idCategory_fk": {
+          "name": "projectCategory_categoryId_category_idCategory_fk",
+          "tableFrom": "projectCategory",
+          "tableTo": "category",
+          "columnsFrom": [
+            "categoryId"
+          ],
+          "columnsTo": [
+            "idCategory"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "projectCategory_idProjectCategory": {
+          "name": "projectCategory_idProjectCategory",
+          "columns": [
+            "idProjectCategory"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "timeBlock": {
+      "name": "timeBlock",
+      "columns": {
+        "idTimeBlock": {
+          "name": "idTimeBlock",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "itemOccurrenceId": {
+          "name": "itemOccurrenceId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userId": {
+          "name": "userId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "timeStart": {
+          "name": "timeStart",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "timeEnd": {
+          "name": "timeEnd",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "allDay": {
+          "name": "allDay",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "isBlocking": {
+          "name": "isBlocking",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "timeBlock_occurrence_idx": {
+          "name": "timeBlock_occurrence_idx",
+          "columns": [
+            "itemOccurrenceId"
+          ],
+          "isUnique": false
+        },
+        "timeBlock_user_time_idx": {
+          "name": "timeBlock_user_time_idx",
+          "columns": [
+            "userId",
+            "timeStart"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "timeBlock_itemOccurrenceId_itemOccurrence_idItemOccurrence_fk": {
+          "name": "timeBlock_itemOccurrenceId_itemOccurrence_idItemOccurrence_fk",
+          "tableFrom": "timeBlock",
+          "tableTo": "itemOccurrence",
+          "columnsFrom": [
+            "itemOccurrenceId"
+          ],
+          "columnsTo": [
+            "idItemOccurrence"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "timeBlock_userId_user_idUser_fk": {
+          "name": "timeBlock_userId_user_idUser_fk",
+          "tableFrom": "timeBlock",
+          "tableTo": "user",
+          "columnsFrom": [
+            "userId"
+          ],
+          "columnsTo": [
+            "idUser"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "timeBlock_idTimeBlock": {
+          "name": "timeBlock_idTimeBlock",
+          "columns": [
+            "idTimeBlock"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "timeLog": {
+      "name": "timeLog",
+      "columns": {
+        "idTimeLog": {
+          "name": "idTimeLog",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "itemOccurrenceId": {
+          "name": "itemOccurrenceId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userId": {
+          "name": "userId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "startedAt": {
+          "name": "startedAt",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "endedAt": {
+          "name": "endedAt",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "enum('timer','manual')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'timer'"
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "timeLog_occurrence_idx": {
+          "name": "timeLog_occurrence_idx",
+          "columns": [
+            "itemOccurrenceId"
+          ],
+          "isUnique": false
+        },
+        "timeLog_user_time_idx": {
+          "name": "timeLog_user_time_idx",
+          "columns": [
+            "userId",
+            "startedAt"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "timeLog_itemOccurrenceId_itemOccurrence_idItemOccurrence_fk": {
+          "name": "timeLog_itemOccurrenceId_itemOccurrence_idItemOccurrence_fk",
+          "tableFrom": "timeLog",
+          "tableTo": "itemOccurrence",
+          "columnsFrom": [
+            "itemOccurrenceId"
+          ],
+          "columnsTo": [
+            "idItemOccurrence"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "timeLog_userId_user_idUser_fk": {
+          "name": "timeLog_userId_user_idUser_fk",
+          "tableFrom": "timeLog",
+          "tableTo": "user",
+          "columnsFrom": [
+            "userId"
+          ],
+          "columnsTo": [
+            "idUser"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "timeLog_idTimeLog": {
+          "name": "timeLog_idTimeLog",
+          "columns": [
+            "idTimeLog"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "user": {
+      "name": "user",
+      "columns": {
+        "idUser": {
+          "name": "idUser",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "externalAuthId": {
+          "name": "externalAuthId",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "user_idUser": {
+          "name": "user_idUser",
+          "columns": [
+            "idUser"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "user_email_unique": {
+          "name": "user_email_unique",
+          "columns": [
+            "email"
+          ]
+        },
+        "user_externalAuthId_unique": {
+          "name": "user_externalAuthId_unique",
+          "columns": [
+            "externalAuthId"
+          ]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "workspace": {
+      "name": "workspace",
+      "columns": {
+        "idWorkspace": {
+          "name": "idWorkspace",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "workspace_idWorkspace": {
+          "name": "workspace_idWorkspace",
+          "columns": [
+            "idWorkspace"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "workspaceUser": {
+      "name": "workspaceUser",
+      "columns": {
+        "idWorkspaceUser": {
+          "name": "idWorkspaceUser",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "workspaceId": {
+          "name": "workspaceId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userId": {
+          "name": "userId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "enum('owner','admin','member')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'member'"
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "workspaceUser_unique": {
+          "name": "workspaceUser_unique",
+          "columns": [
+            "workspaceId",
+            "userId"
+          ],
+          "isUnique": true
+        },
+        "workspaceUser_user_idx": {
+          "name": "workspaceUser_user_idx",
+          "columns": [
+            "userId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "workspaceUser_workspaceId_workspace_idWorkspace_fk": {
+          "name": "workspaceUser_workspaceId_workspace_idWorkspace_fk",
+          "tableFrom": "workspaceUser",
+          "tableTo": "workspace",
+          "columnsFrom": [
+            "workspaceId"
+          ],
+          "columnsTo": [
+            "idWorkspace"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "workspaceUser_userId_user_idUser_fk": {
+          "name": "workspaceUser_userId_user_idUser_fk",
+          "tableFrom": "workspaceUser",
+          "tableTo": "user",
+          "columnsFrom": [
+            "userId"
+          ],
+          "columnsTo": [
+            "idUser"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "workspaceUser_idWorkspaceUser": {
+          "name": "workspaceUser_idWorkspaceUser",
+          "columns": [
+            "idWorkspaceUser"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    }
+  },
+  "views": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "tables": {},
+    "indexes": {}
+  }
+}

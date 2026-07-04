@@ -1,0 +1,15 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: ticktaskdone-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD}
+      MYSQL_DATABASE: ticktaskdone
+    ports:
+      - '3306:3306'
+    volumes:
+      - ticktaskdone-mysql-data:/var/lib/mysql
+
+volumes:
+  ticktaskdone-mysql-data:
