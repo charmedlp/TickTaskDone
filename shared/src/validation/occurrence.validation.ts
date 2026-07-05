@@ -41,3 +41,21 @@ export const moveOccurrenceInput = z
   });
 
 export type MoveOccurrenceInput = z.infer<typeof moveOccurrenceInput>;
+
+// Schedule an existing item onto the calendar: materialize the occurrence and ADD
+// a timeBlock (never replace). A recurrent item -> a new custom off-rule occurrence
+// (occurrenceDate = the drop); a non-recurrent item -> another block on its single
+// occurrence (occurrenceDate = null) = a split. This is the shared primitive behind
+// the ALT-copy "customOccurrence"/"split" cases and scheduling from the item picker.
+export const scheduleOccurrenceInput = z
+  .object({
+    occurrenceDate: z.coerce.date().nullable(),
+    timeStart: z.coerce.date(),
+    timeEnd: z.coerce.date(),
+    allDay: z.boolean().optional(),
+    isBlocking: z.boolean().optional(),
+    dueDate: z.coerce.date().nullable(),
+  })
+  .refine((value) => value.timeEnd > value.timeStart, { message: 'timeEnd must be after timeStart.' });
+
+export type ScheduleOccurrenceInput = z.infer<typeof scheduleOccurrenceInput>;

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   createItemOccurrenceInput,
   moveOccurrenceInput,
+  scheduleOccurrenceInput,
   setOccurrenceStatusInput,
   updateItemOccurrenceInput,
 } from '@ticktaskdone/shared';
@@ -10,6 +11,7 @@ import { validateBody } from '../../middleware/validate';
 import { notFound } from '../../http/errors';
 import { parseId } from '../../http/params';
 import * as occurrenceService from '../occurrence/occurrence.service';
+import { toOccurrenceViewDto } from '../occurrence/occurrence.mapper';
 import { toTimeBlockDto } from '../timeBlock/timeBlock.mapper';
 import * as itemOccurrenceService from './itemOccurrence.service';
 import { toItemOccurrenceDto } from './itemOccurrence.mapper';
@@ -70,6 +72,17 @@ itemOccurrenceRouter.post(
       request.body.status,
     );
     response.json(toItemOccurrenceDto(row));
+  }),
+);
+
+// Schedule: materialize and ADD a timeBlock (split for a non-recurrent item, a
+// new custom occurrence for a recurrent one). Used by the item picker + ALT-copy.
+itemOccurrenceRouter.post(
+  '/schedule',
+  validateBody(scheduleOccurrenceInput),
+  asyncHandler(async (request, response) => {
+    const view = await occurrenceService.scheduleOccurrence(request.loadedItem, request.currentUser.idUser, request.body);
+    response.status(201).json(toOccurrenceViewDto(view));
   }),
 );
 

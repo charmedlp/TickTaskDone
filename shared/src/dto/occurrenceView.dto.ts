@@ -13,8 +13,10 @@ export interface OccurrenceViewDto {
   itemId: number;
   type: ItemType;
   title: string;
+  projectId: number | null; // null = ephemeral (no real project); drives the ALT-copy tree
   resolvedColor: string;
   estimatedMinutes: number | null;
+  isRecurrent: boolean; // has an rrule
   idItemOccurrence: number | null;
   occurrenceDate: string | null;
   status: OccurrenceStatus;

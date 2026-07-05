@@ -11,6 +11,7 @@ export * from './validation/item.validation';
 export * from './validation/itemOccurrence.validation';
 export * from './validation/timeBlock.validation';
 export * from './validation/occurrence.validation';
+export * from './validation/scheduledItem.validation';
 
 // DTO contracts
 export * from './dto/category.dto';

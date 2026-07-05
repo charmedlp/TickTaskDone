@@ -1,0 +1,46 @@
+/* Hand-written base styles — no CSS framework (Constitution §3). */
+
+:root {
+  --surface: #ffffff;
+  --surface-hover: #f2f4f7;
+  --border: #d9dce1;
+  --border-subtle: #edeff2;
+  --text: #1c1e21;
+  --text-muted: #6b7280;
+  --accent: #3366cc;
+  --accent-soft: #e8eefb;
+
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  color: var(--text);
+  background: #fafbfc;
+  font-size: 14px;
+}
+
+#app {
+  height: 100%;
+}
+
+button {
+  font-family: inherit;
+}

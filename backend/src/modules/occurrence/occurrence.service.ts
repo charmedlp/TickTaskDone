@@ -1,5 +1,5 @@
 import { and, eq, gte, isNotNull, isNull, lt, lte } from 'drizzle-orm';
-import type { MoveOccurrenceInput, OccurrenceStatus } from '@ticktaskdone/shared';
+import type { MoveOccurrenceInput, OccurrenceStatus, ScheduleOccurrenceInput } from '@ticktaskdone/shared';
 import { db, type Transaction } from '../../db/db';
 import {
   item,
@@ -155,6 +155,63 @@ export const moveOccurrence = (definition: Item, userId: number, input: MoveOccu
       .from(timeBlock)
       .where(and(eq(timeBlock.itemOccurrenceId, occurrence.idItemOccurrence), eq(timeBlock.userId, userId)));
     return { occurrence, timeBlocks };
+  });
+
+// Schedule an existing item: materialize the occurrence (find-or-create) and ADD a
+// timeBlock. Recurrent -> occurrenceDate = drop (new custom occurrence); non-recurrent
+// -> occurrenceDate = null (a split on its single occurrence).
+export const scheduleOccurrence = (
+  definition: Item,
+  userId: number,
+  input: ScheduleOccurrenceInput,
+): Promise<OccurrenceView> =>
+  db.transaction(async (transaction) => {
+    const occurrence = await materializeOccurrence(transaction, definition, input.occurrenceDate, userId);
+
+    if (input.dueDate !== null) {
+      await transaction
+        .update(itemOccurrence)
+        .set({ dueDate: input.dueDate, updatedBy: userId })
+        .where(eq(itemOccurrence.idItemOccurrence, occurrence.idItemOccurrence));
+    }
+
+    await transaction.insert(timeBlock).values({
+      itemOccurrenceId: occurrence.idItemOccurrence,
+      userId,
+      timeStart: input.timeStart,
+      timeEnd: input.timeEnd,
+      allDay: input.allDay,
+      isBlocking: input.isBlocking,
+      createdBy: userId,
+      updatedBy: userId,
+    });
+
+    const [row] = await transaction
+      .select({ item, projectColor: project.color })
+      .from(item)
+      .leftJoin(project, eq(item.projectId, project.idProject))
+      .where(eq(item.idItem, definition.idItem))
+      .limit(1);
+    const [fresh] = await transaction
+      .select()
+      .from(itemOccurrence)
+      .where(eq(itemOccurrence.idItemOccurrence, occurrence.idItemOccurrence))
+      .limit(1);
+    const timeBlocks = await transaction
+      .select()
+      .from(timeBlock)
+      .where(and(eq(timeBlock.itemOccurrenceId, occurrence.idItemOccurrence), eq(timeBlock.userId, userId)));
+
+    return {
+      item: row.item,
+      projectColor: row.projectColor,
+      idItemOccurrence: fresh.idItemOccurrence,
+      occurrenceDate: fresh.occurrenceDate,
+      status: fresh.status,
+      dueDate: fresh.dueDate,
+      materialized: true,
+      timeBlocks,
+    };
   });
 
 // -----------------------------------------------------------------------------

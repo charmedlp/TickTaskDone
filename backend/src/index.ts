@@ -9,6 +9,7 @@ import { projectRouter } from './modules/project/project.routes';
 import { itemRouter } from './modules/item/item.routes';
 import { timeBlockRouter } from './modules/timeBlock/timeBlock.routes';
 import { occurrenceRouter, reminderRouter } from './modules/occurrence/occurrence.routes';
+import { scheduledItemRouter } from './modules/scheduledItem/scheduledItem.routes';
 
 const app = express();
 app.use(cors()); // dev : laisse le frontend Vite ET l'app Capacitor appeler l'API
@@ -24,6 +25,7 @@ const workspaceRouter = Router({ mergeParams: true });
 workspaceRouter.use('/categories', categoryRouter);
 workspaceRouter.use('/projects', projectRouter);
 workspaceRouter.use('/items', itemRouter);
+workspaceRouter.use('/scheduled-items', scheduledItemRouter);
 workspaceRouter.use('/timeblocks', timeBlockRouter);
 workspaceRouter.use('/occurrences', occurrenceRouter);
 workspaceRouter.use('/reminders', reminderRouter);
