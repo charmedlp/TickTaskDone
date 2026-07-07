@@ -1,7 +1,7 @@
 import { resolveColor, type ItemDto } from '@ticktaskdone/shared';
 import type { ItemWithProjectColor } from './item.service';
 
-export const toItemDto = ({ item, projectColor }: ItemWithProjectColor): ItemDto => ({
+export const toItemDto = ({ item, projectColor, categoryIds }: ItemWithProjectColor): ItemDto => ({
   idItem: item.idItem,
   workspaceId: item.workspaceId,
   type: item.type,
@@ -13,6 +13,7 @@ export const toItemDto = ({ item, projectColor }: ItemWithProjectColor): ItemDto
   estimatedMinutes: item.estimatedMinutes,
   rrule: item.rrule,
   recurrenceStart: item.recurrenceStart?.toISOString() ?? null,
+  categoryIds,
   createdAt: item.createdAt.toISOString(),
   updatedAt: item.updatedAt.toISOString(),
 });

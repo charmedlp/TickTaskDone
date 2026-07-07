@@ -15,5 +15,8 @@
     "db:generate": "npm run db:generate --workspace backend",
     "db:migrate": "npm run db:migrate --workspace backend",
     "db:studio": "npm run db:studio --workspace backend"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.3"
   }
 }

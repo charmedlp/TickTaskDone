@@ -4,11 +4,16 @@ import { layoutColumn, type LayoutBox } from '@/lib/layout';
 import { allDayBlocksForDay, timedBlocksForDay, type CalendarBlock } from '@/lib/renderables';
 import { formatDayHeader, formatHourLabel } from '@/lib/format';
 import { MINUTES_PER_DAY, startOfDay } from '@/lib/datetime';
-import { HOUR_HEIGHT, minutesToY } from '@/lib/grid';
+import { DEFAULT_CREATE_MINUTES, HOUR_HEIGHT, minutesToY, snapMinutes, yToMinutes } from '@/lib/grid';
 import { useCalendarDrag, type BlockContext } from '@/composables/useCalendarDrag';
 import CalendarBlockView from './CalendarBlockView.vue';
 
-const props = defineProps<{ days: Date[]; blocks: CalendarBlock[] }>();
+const props = defineProps<{
+  days: Date[];
+  blocks: CalendarBlock[];
+  // Live pointer of an in-progress backlog drag, to draw the dashed drop preview.
+  dropPoint?: { x: number; y: number; durationMinutes: number } | null;
+}>();
 
 const emit = defineEmits<{
   create: [payload: { start: Date; end: Date }];
@@ -147,12 +152,71 @@ const ghostStyle = computed(() => {
   };
 });
 
+// Hover preview: the dashed box a plain click would create, following the mouse
+// over empty grid. Suppressed while dragging or over a block.
+const hoverPoint = ref<{ dayIndex: number; startMinutes: number } | null>(null);
+
+const onHoverMove = (event: PointerEvent): void => {
+  if (event.pointerType !== 'mouse' || draft.value || (event.target as HTMLElement).closest('.calendar-block')) {
+    hoverPoint.value = null;
+    return;
+  }
+  const rect = columnsRef.value?.getBoundingClientRect();
+  if (!rect) {
+    hoverPoint.value = null;
+    return;
+  }
+  const dayIndex = Math.min(Math.max(Math.floor((event.clientX - rect.left) / (rect.width / props.days.length)), 0), props.days.length - 1);
+  const startMinutes = Math.min(snapMinutes(yToMinutes(event.clientY - rect.top)), MINUTES_PER_DAY - DEFAULT_CREATE_MINUTES);
+  hoverPoint.value = { dayIndex, startMinutes };
+};
+
+const hoverGhostStyle = computed(() =>
+  hoverPoint.value
+    ? { top: `${minutesToY(hoverPoint.value.startMinutes)}px`, height: `${minutesToY(DEFAULT_CREATE_MINUTES)}px` }
+    : null,
+);
+
+// Dashed preview of where a dragged backlog task would land (snapped), mirroring
+// the move/create ghost. null when the pointer is outside the day columns.
+const dropGhost = computed(() => {
+  const point = props.dropPoint;
+  const rect = columnsRef.value?.getBoundingClientRect();
+  if (!point || !rect || point.x < rect.left || point.x > rect.right || point.y < rect.top || point.y > rect.bottom) {
+    return null;
+  }
+  const dayIndex = Math.min(Math.max(Math.floor((point.x - rect.left) / (rect.width / props.days.length)), 0), props.days.length - 1);
+  const startMinutes = snapMinutes(yToMinutes(point.y - rect.top));
+  return {
+    dayIndex,
+    top: `${minutesToY(startMinutes)}px`,
+    height: `${minutesToY(point.durationMinutes)}px`,
+  };
+});
+
 const bodyRef = ref<HTMLElement | null>(null);
 onMounted(() => {
   if (bodyRef.value) {
     bodyRef.value.scrollTop = 7 * HOUR_HEIGHT; // open on a useful range, not midnight
   }
 });
+
+// Convert a screen point to a schedule slot (for the backlog drop). null if the
+// point is outside the day columns.
+const dropAt = (clientX: number, clientY: number, durationMinutes: number): { start: Date; end: Date } | null => {
+  const rect = columnsRef.value?.getBoundingClientRect();
+  if (!rect || clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+    return null;
+  }
+  const dayIndex = Math.min(Math.max(Math.floor((clientX - rect.left) / (rect.width / props.days.length)), 0), props.days.length - 1);
+  const day = props.days[dayIndex];
+  if (!day) {
+    return null;
+  }
+  const start = new Date(day.getTime() + snapMinutes(yToMinutes(clientY - rect.top)) * 60_000);
+  return { start, end: new Date(start.getTime() + durationMinutes * 60_000) };
+};
+defineExpose({ dropAt });
 </script>
 
 <template>
@@ -197,6 +261,8 @@ onMounted(() => {
         class="day-columns"
         :style="{ height: `${bodyHeight}px` }"
         @pointerdown="onGridPointerDown"
+        @pointermove="onHoverMove"
+        @pointerleave="hoverPoint = null"
       >
         <div
           v-for="(column, columnIndex) in dayColumns"
@@ -228,6 +294,14 @@ onMounted(() => {
           >
             <span v-if="draft.isCopy" class="ghost-badge">＋ copy</span>
           </div>
+
+          <div v-if="dropGhost && dropGhost.dayIndex === columnIndex" class="ghost" :style="{ top: dropGhost.top, height: dropGhost.height }" />
+
+          <div
+            v-if="hoverPoint && hoverPoint.dayIndex === columnIndex && hoverGhostStyle"
+            class="ghost is-hover"
+            :style="hoverGhostStyle"
+          />
         </div>
       </div>
     </div>
@@ -332,6 +406,7 @@ onMounted(() => {
   flex: 1;
   position: relative;
   border-left: 1px solid var(--border);
+  cursor: pointer; /* empty grid: click to create (blocks override with grab) */
 }
 
 .hour-line {
@@ -353,6 +428,11 @@ onMounted(() => {
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
+}
+
+/* The hover preview is lighter than an active drag ghost. */
+.ghost.is-hover {
+  opacity: 0.55;
 }
 
 .ghost-badge {

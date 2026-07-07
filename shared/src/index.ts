@@ -12,6 +12,7 @@ export * from './validation/itemOccurrence.validation';
 export * from './validation/timeBlock.validation';
 export * from './validation/occurrence.validation';
 export * from './validation/scheduledItem.validation';
+export * from './validation/itemCategory.validation';
 
 // DTO contracts
 export * from './dto/category.dto';
@@ -21,3 +22,4 @@ export * from './dto/itemOccurrence.dto';
 export * from './dto/timeBlock.dto';
 export * from './dto/occurrenceView.dto';
 export * from './dto/reminder.dto';
+export * from './dto/backlog.dto';

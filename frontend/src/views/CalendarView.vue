@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { ItemDto, ProjectDto } from '@ticktaskdone/shared';
 import { useCalendarStore, type CalendarMode } from '@/stores/calendar';
-import { daysInWindow, type CalendarViewType } from '@/lib/datetime';
+import { daysInWindow, fromDateInputValue, toDateInputValue, type CalendarViewType } from '@/lib/datetime';
 import { formatWindowTitle } from '@/lib/format';
 import { toCalendarBlocks, type CalendarBlock } from '@/lib/renderables';
 import { emptyRecurrence, parseRrule } from '@/lib/recurrenceModel';
@@ -13,14 +13,28 @@ import { createScheduledItem } from '@/api/scheduledItems';
 import { deleteTimeBlock, updateTimeBlock } from '@/api/timeBlocks';
 import { moveOccurrence, scheduleOccurrence, setOccurrenceStatus, updateOccurrence } from '@/api/occurrenceActions';
 import { deleteItem, fetchItem, listItems, updateItem } from '@/api/items';
+import type { BacklogTaskDto } from '@ticktaskdone/shared';
 import TimeGrid from '@/components/calendar/TimeGrid.vue';
+import MonthGrid from '@/components/calendar/MonthGrid.vue';
+import CalendarListView from '@/components/calendar/CalendarListView.vue';
 import CalendarItemForm from '@/components/calendar/CalendarItemForm.vue';
 import CalendarContextMenu from '@/components/calendar/CalendarContextMenu.vue';
+import BacklogSidebar from '@/components/calendar/BacklogSidebar.vue';
 import type { FormSeed, ScheduleSubmit, UpdateSubmit } from '@/components/calendar/itemForm.types';
 import type { MenuAction } from '@/components/calendar/contextMenu.types';
 
 const store = useCalendarStore();
-const { view, mode, occurrences, loading, error, window: visibleWindow } = storeToRefs(store);
+const { view, mode, anchor, occurrences, backlog, loading, error, window: visibleWindow } = storeToRefs(store);
+
+// Two-way binding for the <input type="date"> start-date picker.
+const anchorInput = computed({
+  get: () => toDateInputValue(anchor.value),
+  set: (value: string) => {
+    if (value) {
+      store.setAnchor(fromDateInputValue(value));
+    }
+  },
+});
 
 const viewOptions: { id: CalendarViewType; label: string }[] = [
   { id: 'day', label: 'Day' },
@@ -51,12 +65,63 @@ const menu = ref<{ open: boolean; x: number; y: number; block: CalendarBlock | n
   block: null,
 });
 
+// --- Backlog drag-to-schedule -----------------------------------------------
+const timeGridRef = ref<InstanceType<typeof TimeGrid> | null>(null);
+const monthGridRef = ref<InstanceType<typeof MonthGrid> | null>(null);
+const backlogDrag = ref<{ task: BacklogTaskDto; x: number; y: number } | null>(null);
+
+const onBacklogMove = (event: PointerEvent): void => {
+  if (backlogDrag.value) {
+    backlogDrag.value = { ...backlogDrag.value, x: event.clientX, y: event.clientY };
+  }
+};
+const onBacklogUp = (event: PointerEvent): void => {
+  const drag = backlogDrag.value;
+  window.removeEventListener('pointermove', onBacklogMove);
+  window.removeEventListener('pointerup', onBacklogUp);
+  backlogDrag.value = null;
+  if (!drag) {
+    return;
+  }
+  // Drop onto whichever grid is mounted (Day/Week/WorkWeek or Month); List has none.
+  const drop = (timeGridRef.value ?? monthGridRef.value)?.dropAt(
+    event.clientX,
+    event.clientY,
+    drag.task.estimatedMinutes ?? 60,
+  );
+  if (drop) {
+    store.apply(() =>
+      scheduleOccurrence(drag.task.itemId, {
+        occurrenceDate: null,
+        timeStart: drop.start,
+        timeEnd: drop.end,
+        allDay: false,
+        isBlocking: false,
+        dueDate: null,
+      }),
+    );
+  }
+};
+const onBacklogDragStart = (payload: { task: BacklogTaskDto; event: PointerEvent }): void => {
+  backlogDrag.value = { task: payload.task, x: payload.event.clientX, y: payload.event.clientY };
+  window.addEventListener('pointermove', onBacklogMove);
+  window.addEventListener('pointerup', onBacklogUp);
+};
+
+// The live drop point handed to the active grid, which draws the dashed preview.
+const dropPoint = computed(() =>
+  backlogDrag.value
+    ? { x: backlogDrag.value.x, y: backlogDrag.value.y, durationMinutes: backlogDrag.value.task.estimatedMinutes ?? 60 }
+    : null,
+);
+
 const refreshItems = async (): Promise<void> => {
   items.value = (await listItems().catch(() => [])) ?? [];
 };
 
 onMounted(async () => {
   await store.load();
+  await store.loadBacklog();
   projects.value = (await listProjects().catch(() => [])) ?? [];
   await refreshItems();
 });
@@ -146,12 +211,8 @@ const openCreate = (start: Date, end: Date): void => {
     isBlocking: false,
     allDay: false,
     recurrence: emptyRecurrence(),
+    categoryIds: [],
   };
-};
-
-const openNew = (): void => {
-  const start = new Date(visibleWindow.value.from.getTime() + 9 * 60 * 60_000);
-  openCreate(start, new Date(start.getTime() + 60 * 60_000));
 };
 
 const onCreate = (payload: { start: Date; end: Date }): void => openCreate(payload.start, payload.end);
@@ -196,6 +257,7 @@ const openEdit = async (block: CalendarBlock): Promise<void> => {
     isBlocking: block.isBlocking,
     allDay: block.allDay,
     recurrence: parseRrule(item.rrule),
+    categoryIds: item.categoryIds, // now carried by ItemDto (brief §8)
   };
 };
 
@@ -259,6 +321,7 @@ const onMenuSelect = (id: string): void => {
 // --- Form handlers ----------------------------------------------------------
 
 const onFormCreate = (input: Parameters<typeof createScheduledItem>[0]): void => {
+  // categoryIds travel inside input.item; the backend creates the links atomically.
   store.apply(() => createScheduledItem(input));
   formSeed.value = null;
 };
@@ -281,6 +344,7 @@ const onFormSchedule = (payload: ScheduleSubmit): void => {
 
 const onFormUpdate = (payload: UpdateSubmit): void => {
   store.apply(async () => {
+    // payload.item includes categoryIds — synced within the item update transaction.
     await updateItem(payload.idItem, payload.item);
     if (payload.idItemOccurrence !== null) {
       await updateOccurrence(payload.idItem, payload.idItemOccurrence, { dueDate: payload.dueDate });
@@ -304,7 +368,7 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
 
       <h2 class="title">{{ title }}</h2>
 
-      <button type="button" class="new" :disabled="loading" @click="openNew">+ New</button>
+      <input v-model="anchorInput" type="date" class="date-input" aria-label="Go to date" />
 
       <div class="spacer" />
 
@@ -335,32 +399,55 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
 
     <p v-if="error" class="banner error">{{ error }}</p>
 
-    <div class="body">
-      <p v-if="mode === 'actual'" class="placeholder">
-        The <strong>Actual</strong> view (timeLogs) arrives in a later Phase 4 milestone.
-      </p>
-      <TimeGrid
-        v-else-if="isGridView"
-        :days="days"
-        :blocks="blocks"
-        @create="onCreate"
-        @move="onMove"
-        @resize="onResize"
-        @copy="onCopy"
-        @toggle="onToggle"
-        @menu="onMenu"
-        @edit="(payload) => openEdit(payload.block)"
-      />
-      <p v-else class="placeholder">
-        The <strong>{{ view }}</strong> view arrives in a later Phase 4 milestone.
-      </p>
+    <div class="workspace">
+      <div class="body">
+        <p v-if="mode === 'actual'" class="placeholder">
+          The <strong>Actual</strong> view (timeLogs) arrives in a later Phase 4 milestone.
+        </p>
+        <TimeGrid
+          v-else-if="isGridView"
+          ref="timeGridRef"
+          :days="days"
+          :blocks="blocks"
+          :drop-point="dropPoint"
+          @create="onCreate"
+          @move="onMove"
+          @resize="onResize"
+          @copy="onCopy"
+          @toggle="onToggle"
+          @menu="onMenu"
+          @edit="(payload) => openEdit(payload.block)"
+        />
+        <MonthGrid
+          v-else-if="view === 'month'"
+          ref="monthGridRef"
+          :days="days"
+          :blocks="blocks"
+          :drop-point="dropPoint"
+          @create="onCreate"
+          @move="onMove"
+          @menu="onMenu"
+          @toggle="onToggle"
+          @edit="(payload) => openEdit(payload.block)"
+        />
+        <CalendarListView
+          v-else
+          :days="days"
+          :blocks="blocks"
+          @menu="onMenu"
+          @toggle="onToggle"
+          @edit="(payload) => openEdit(payload.block)"
+        />
 
-      <!-- Overlay covers the whole calendar while (re)loading: obvious, no layout
-           shift, and it blocks interaction so nothing is added mid-load. -->
-      <div v-if="loading" class="loading-overlay">
-        <span class="spinner" aria-hidden="true" />
-        <span>Loading…</span>
+        <!-- Overlay covers the whole calendar while (re)loading: obvious, no layout
+             shift, and it blocks interaction so nothing is added mid-load. -->
+        <div v-if="loading" class="loading-overlay">
+          <span class="spinner" aria-hidden="true" />
+          <span>Loading…</span>
+        </div>
       </div>
+
+      <BacklogSidebar :tasks="backlog" :projects="projects" @dragstart="onBacklogDragStart" />
     </div>
 
     <CalendarContextMenu
@@ -381,6 +468,14 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
       @update="onFormUpdate"
       @close="formSeed = null"
     />
+
+    <div
+      v-if="backlogDrag"
+      class="drag-ghost"
+      :style="{ left: `${backlogDrag.x + 12}px`, top: `${backlogDrag.y + 12}px` }"
+    >
+      {{ backlogDrag.task.title }}
+    </div>
   </section>
 </template>
 
@@ -429,14 +524,17 @@ button:hover {
   background: var(--surface-hover);
 }
 
-.today,
-.new {
+.today {
   font-weight: 600;
 }
 
-.new {
-  color: var(--accent);
-  border-color: var(--accent);
+.date-input {
+  font: inherit;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 4px 8px;
+  border-radius: 6px;
 }
 
 .segmented {
@@ -475,11 +573,35 @@ button:hover {
   color: #b00020;
 }
 
+.workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 10px;
+}
+
 .body {
   position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
+}
+
+.drag-ghost {
+  position: fixed;
+  z-index: 300;
+  pointer-events: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .body > * {

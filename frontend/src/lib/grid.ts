@@ -5,6 +5,7 @@ import { MINUTES_PER_DAY } from './datetime';
 export const HOUR_HEIGHT = 48; // pixels per hour
 export const SNAP_MINUTES = 15; // default drag snap (brief §1, configurable later)
 export const MIN_DURATION_MINUTES = SNAP_MINUTES; // a block can never be shorter than one snap step
+export const DEFAULT_CREATE_MINUTES = 30; // duration of an item created by a plain click (and its hover preview)
 
 export const clampMinutes = (minutes: number): number => Math.min(Math.max(minutes, 0), MINUTES_PER_DAY);
 

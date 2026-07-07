@@ -9,6 +9,8 @@ import {
 } from '@ticktaskdone/shared';
 import { fromDateTimeInputValue, toDateTimeInputValue } from '@/lib/datetime';
 import { buildRrule, emptyRecurrence, type Frequency, type RecurrenceModel } from '@/lib/recurrenceModel';
+import CategoryPicker from './CategoryPicker.vue';
+import type { CategoryDto } from '@ticktaskdone/shared';
 import type { FormSeed, ScheduleSubmit, UpdateSubmit } from './itemForm.types';
 
 const props = defineProps<{ seed: FormSeed | null; projects: ProjectDto[]; items: ItemDto[] }>();
@@ -36,6 +38,7 @@ const form = reactive({
   timeStart: '' as string,
   timeEnd: '' as string,
   recurrence: emptyRecurrence() as RecurrenceModel,
+  categoryIds: [] as number[],
 });
 // 'new' creates a brand-new item; a number schedules that existing item instead.
 const source = ref<'new' | number>('new');
@@ -65,6 +68,7 @@ watch(
     form.timeStart = toDateTimeInputValue(seed.timeStart);
     form.timeEnd = toDateTimeInputValue(seed.timeEnd);
     form.recurrence = { ...seed.recurrence };
+    form.categoryIds = [...seed.categoryIds];
     idItem.value = seed.idItem ?? null;
     idItemOccurrence.value = seed.idItemOccurrence ?? null;
     timeBlockId.value = seed.timeBlockId ?? null;
@@ -112,6 +116,40 @@ const showPicker = computed(() => form.mode === 'create' && form.type === 'task'
 const showItemDetail = computed(() => form.mode === 'edit' || isNew.value);
 const showTimeFields = computed(() => form.mode === 'create');
 
+// --- Category selection & auto-color (brief §5) -----------------------------
+// The full category tree, provided by the picker, to resolve lineage color.
+const categoryTree = ref<CategoryDto[]>([]);
+
+// Walk a category's ancestry to the first color (categories always carry one, but
+// the walk honors the brief's `category.color ?? parent.color ?? …`).
+const resolveCategoryColor = (categoryId: number): string | null => {
+  const byId = new Map(categoryTree.value.map((category) => [category.idCategory, category]));
+  let current = byId.get(categoryId);
+  while (current) {
+    if (current.color) {
+      return current.color;
+    }
+    current = current.parentCategoryId !== null ? byId.get(current.parentCategoryId) : undefined;
+  }
+  return null;
+};
+
+// Runs only on an actual pick (never on seed load, since we bind via a handler):
+// the FIRST chosen category paints item.color, but only for an item with no project
+// and no custom color yet. Once color is set it is custom and later picks leave it.
+const onCategoriesChange = (categoryIds: number[]): void => {
+  const added = categoryIds.length > form.categoryIds.length;
+  const first = categoryIds[0];
+  if (added && first !== undefined && form.projectId === null && !form.useColor) {
+    const color = resolveCategoryColor(first);
+    if (color !== null) {
+      form.color = color;
+      form.useColor = true;
+    }
+  }
+  form.categoryIds = categoryIds;
+};
+
 const buildItemFields = (recurring: boolean, recurrenceStart: Date | null) => ({
   type: form.type,
   projectId: form.projectId,
@@ -121,6 +159,7 @@ const buildItemFields = (recurring: boolean, recurrenceStart: Date | null) => ({
   estimatedMinutes: form.type === 'task' ? form.estimatedMinutes : null,
   rrule: recurring ? buildRrule(form.recurrence) : null,
   recurrenceStart,
+  categoryIds: [...form.categoryIds], // stored leaves; part of the item input (brief §8)
 });
 
 const submit = (): void => {
@@ -176,7 +215,7 @@ const submit = (): void => {
     errorMessage.value = parsed.error.issues[0]?.message ?? 'Invalid values.';
     return;
   }
-  emit('create', parsed.data);
+  emit('create', parsed.data); // categoryIds travel inside input.item (brief §8)
 };
 </script>
 
@@ -257,6 +296,15 @@ const submit = (): void => {
             </label>
           </template>
         </fieldset>
+
+        <div class="field">
+          <span class="field-label">Categories</span>
+          <CategoryPicker
+            :model-value="form.categoryIds"
+            @update:model-value="onCategoriesChange"
+            @loaded="categoryTree = $event"
+          />
+        </div>
       </template>
 
       <!-- Occurrence / timeBlock fields (always shown) -->
@@ -366,6 +414,18 @@ input[type='checkbox'] {
 
 .hint {
   font-size: 12px;
+  color: var(--text-muted);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.field-label {
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-muted);
 }
 

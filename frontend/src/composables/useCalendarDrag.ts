@@ -1,6 +1,6 @@
 import { onBeforeUnmount, ref } from 'vue';
 import { MINUTES_PER_DAY } from '@/lib/datetime';
-import { MIN_DURATION_MINUTES, snapMinutes, yToMinutes } from '@/lib/grid';
+import { DEFAULT_CREATE_MINUTES, MIN_DURATION_MINUTES, snapMinutes, yToMinutes } from '@/lib/grid';
 import type { CalendarBlock } from '@/lib/renderables';
 
 // Home-made pointer-event interaction layer for the time grid (guide §10: the most
@@ -202,7 +202,7 @@ export const useCalendarDrag = (options: {
     draft.value = {
       dayIndex: position.dayIndex,
       startMinutes: anchor,
-      endMinutes: snapMinutes(anchor + MIN_DURATION_MINUTES),
+      endMinutes: snapMinutes(anchor + DEFAULT_CREATE_MINUTES), // a plain click makes a default-length block
       isCopy: false,
       block: null,
     };

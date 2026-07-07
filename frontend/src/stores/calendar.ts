@@ -1,7 +1,8 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import type { OccurrenceViewDto } from '@ticktaskdone/shared';
+import type { BacklogTaskDto, OccurrenceViewDto } from '@ticktaskdone/shared';
 import { fetchOccurrences } from '@/api/occurrences';
+import { fetchBacklog } from '@/api/backlog';
 import { ApiError } from '@/api/client';
 import { type CalendarViewType, stepAnchor, windowForView } from '@/lib/datetime';
 
@@ -16,6 +17,7 @@ export const useCalendarStore = defineStore('calendar', () => {
   const mode = ref<CalendarMode>('planned');
 
   const occurrences = ref<OccurrenceViewDto[]>([]);
+  const backlog = ref<BacklogTaskDto[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
 
@@ -47,8 +49,17 @@ export const useCalendarStore = defineStore('calendar', () => {
   const goToToday = (): void => {
     anchor.value = new Date();
   };
+  const setAnchor = (date: Date): void => {
+    anchor.value = date;
+  };
   const setMode = (next: CalendarMode): void => {
     mode.value = next;
+  };
+
+  // The backlog is workspace/user-scoped (not window-dependent): loaded once and
+  // refreshed after mutations, which can move tasks in or out of it.
+  const loadBacklog = async (): Promise<void> => {
+    backlog.value = await fetchBacklog().catch(() => []);
   };
 
   // Optimistic reschedule: move a block locally so it follows the drop instantly,
@@ -71,7 +82,7 @@ export const useCalendarStore = defineStore('calendar', () => {
     error.value = null;
     try {
       const result = await operation();
-      await load(true); // silent reconcile — no loading flash
+      await Promise.all([load(true), loadBacklog()]); // silent reconcile of feed + backlog
       return result;
     } catch (cause) {
       error.value = cause instanceof ApiError ? cause.message : 'Action failed.';
@@ -87,13 +98,16 @@ export const useCalendarStore = defineStore('calendar', () => {
     weekStartsOn,
     mode,
     occurrences,
+    backlog,
     loading,
     error,
     window,
     load,
+    loadBacklog,
     setView,
     step,
     goToToday,
+    setAnchor,
     setMode,
   };
 });

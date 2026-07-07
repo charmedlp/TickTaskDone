@@ -52,10 +52,15 @@ export const windowForView = (view: CalendarViewType, anchor: Date, weekStartsOn
   switch (view) {
     case 'day':
       return { from: startOfDay(anchor), to: addDays(startOfDay(anchor), 1) };
-    case 'week':
-    case 'list': {
+    case 'week': {
       const from = startOfWeek(anchor, weekStartsOn);
       return { from, to: addDays(from, 7) };
+    }
+    // The List is an "upcoming" view: from the anchor day forward (a year horizon),
+    // then paginated by count client-side.
+    case 'list': {
+      const from = startOfDay(anchor);
+      return { from, to: addDays(from, 366) };
     }
     case 'workWeek': {
       const from = startOfWeek(anchor, 1);
@@ -87,6 +92,12 @@ export const toDateTimeInputValue = (date: Date): string =>
   `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}T${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
 
 export const fromDateTimeInputValue = (value: string): Date => new Date(`${value}:00.000Z`);
+
+// <input type="date"> helpers (UTC wall-clock, like the datetime ones).
+export const toDateInputValue = (date: Date): string =>
+  `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+
+export const fromDateInputValue = (value: string): Date => new Date(`${value}T00:00:00.000Z`);
 
 // Step the anchor by one unit of the given view (previous/next navigation).
 export const stepAnchor = (view: CalendarViewType, anchor: Date, direction: 1 | -1): Date => {

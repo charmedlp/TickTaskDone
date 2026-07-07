@@ -20,6 +20,13 @@ const dayTitleFormatter = new Intl.DateTimeFormat('en-CA', {
 
 const monthTitleFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC', month: 'long', year: 'numeric' });
 
+const longDateFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'UTC',
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+});
+
 const timeFormatter = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'UTC',
   hour: '2-digit',
@@ -28,6 +35,8 @@ const timeFormatter = new Intl.DateTimeFormat('en-CA', {
 });
 
 export const formatDayHeader = (day: Date): string => dayHeaderFormatter.format(day);
+
+export const formatFullDay = (day: Date): string => dayTitleFormatter.format(day);
 
 export const formatHourLabel = (hour: number): string => `${String(hour).padStart(2, '0')}:00`;
 
@@ -44,6 +53,9 @@ export const formatWindowTitle = (view: CalendarViewType, window: DateWindow): s
     // Title the month that owns most of the grid (the 15th is always inside it).
     return monthTitleFormatter.format(addDays(window.from, 15));
   }
+  if (view === 'list') {
+    return `From ${longDateFormatter.format(window.from)}`;
+  }
   const lastDay = addDays(window.to, -1);
-  return `${dayHeaderFormatter.format(window.from)} – ${dayHeaderFormatter.format(lastDay)}`;
+  return `${dayHeaderFormatter.format(window.from)} – ${dayHeaderFormatter.format(lastDay)}, ${lastDay.getUTCFullYear()}`;
 };

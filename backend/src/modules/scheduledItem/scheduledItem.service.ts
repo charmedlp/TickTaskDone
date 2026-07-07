@@ -2,16 +2,19 @@ import { eq } from 'drizzle-orm';
 import type { CreateScheduledItemInput } from '@ticktaskdone/shared';
 import { db } from '../../db/db';
 import { item, itemOccurrence, project, timeBlock, type TimeBlock } from '../../db/schema';
+import { assertCategoriesInWorkspace, replaceItemCategories } from '../itemCategory/itemCategory.service';
 import type { OccurrenceView } from '../occurrence/occurrence.service';
 
 // Creates an item, its first occurrence, and optionally one timeBlock, atomically.
 // Returns the assembled OccurrenceView so the caller renders it without a refetch.
-export const createScheduledItem = (
+export const createScheduledItem = async (
   workspaceId: number,
   userId: number,
   input: CreateScheduledItemInput,
-): Promise<OccurrenceView> =>
-  db.transaction(async (transaction) => {
+): Promise<OccurrenceView> => {
+  await assertCategoriesInWorkspace(workspaceId, input.item.categoryIds ?? []);
+
+  return db.transaction(async (transaction) => {
     const [{ idItem }] = await transaction
       .insert(item)
       .values({
@@ -28,6 +31,8 @@ export const createScheduledItem = (
         updatedBy: userId,
       })
       .$returningId();
+
+    await replaceItemCategories(transaction, userId, idItem, input.item.categoryIds ?? []);
 
     const [{ idItemOccurrence }] = await transaction
       .insert(itemOccurrence)
@@ -80,3 +85,4 @@ export const createScheduledItem = (
       timeBlocks,
     };
   });
+};

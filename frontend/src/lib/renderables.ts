@@ -87,3 +87,12 @@ export const allDayBlocksForDay = (blocks: CalendarBlock[], dayStart: Date): Cal
   const dayEnd = addDays(dayStart, 1);
   return blocks.filter((block) => block.allDay && block.start < dayEnd && block.end > dayStart);
 };
+
+// Any block (timed or all-day) intersecting the given day, all-day first then by
+// start time. Used by the Month and List views.
+export const blocksForDay = (blocks: CalendarBlock[], dayStart: Date): CalendarBlock[] => {
+  const dayEnd = addDays(dayStart, 1);
+  return blocks
+    .filter((block) => block.start < dayEnd && block.end > dayStart)
+    .sort((left, right) => Number(right.allDay) - Number(left.allDay) || left.start.getTime() - right.start.getTime());
+};

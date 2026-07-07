@@ -14,6 +14,7 @@ export interface ItemDto {
   estimatedMinutes: number | null;
   rrule: string | null;
   recurrenceStart: string | null;
+  categoryIds: number[]; // the stored leaves; ancestors are deduced client-side
   createdAt: string;
   updatedAt: string;
 }

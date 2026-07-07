@@ -19,6 +19,7 @@ export interface FormSeed {
   isBlocking: boolean;
   allDay: boolean;
   recurrence: RecurrenceModel;
+  categoryIds: number[];
 }
 
 // Emitted when the form schedules an EXISTING item (no new item created): only
@@ -34,7 +35,8 @@ export interface ScheduleSubmit {
 }
 
 // Normalized edit payload emitted by the form; the caller applies the parts that
-// exist (item fields always; occurrence dueDate and block flags when materialized).
+// exist (item fields — including categoryIds — always; occurrence dueDate and block
+// flags when materialized).
 export interface UpdateSubmit {
   idItem: number;
   item: UpdateItemInput;
