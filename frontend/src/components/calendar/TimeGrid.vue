@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { layoutColumn, type LayoutBox } from '@/lib/layout';
+import type { ReminderDto } from '@ticktaskdone/shared';
 import { allDayBlocksForDay, timedBlocksForDay, type CalendarBlock } from '@/lib/renderables';
-import { formatDayHeader, formatHourLabel } from '@/lib/format';
+import { formatDayHeader, formatHourLabel, formatFullDay } from '@/lib/format';
 import { MINUTES_PER_DAY, startOfDay } from '@/lib/datetime';
 import { DEFAULT_CREATE_MINUTES, HOUR_HEIGHT, minutesToY, snapMinutes, yToMinutes } from '@/lib/grid';
 import { useCalendarDrag, type BlockContext } from '@/composables/useCalendarDrag';
@@ -15,6 +16,8 @@ const props = defineProps<{
   dropPoint?: { x: number; y: number; durationMinutes: number } | null;
   // Actual view is read-only: no create / move / resize / copy (only view + menu).
   readonly?: boolean;
+  // Overdue todo tasks, shown as a one-row band pinned to today's column.
+  reminders?: ReminderDto[];
 }>();
 
 const emit = defineEmits<{
@@ -26,6 +29,7 @@ const emit = defineEmits<{
   toggle: [payload: { block: CalendarBlock }];
   edit: [payload: { block: CalendarBlock }];
   timer: [payload: { block: CalendarBlock }];
+  reminder: [payload: { reminder: ReminderDto }];
 }>();
 
 const hours = Array.from({ length: 24 }, (_unused, index) => index);
@@ -63,6 +67,24 @@ const dayColumns = computed<DayColumn[]>(() =>
 );
 
 const hasAllDay = computed(() => dayColumns.value.some((column) => column.allDay.length > 0));
+
+// --- Overdue band -----------------------------------------------------------
+// Reminders are a "now" concept, so the band is pinned to today's column and only
+// shown when today is in view. It lists the most-overdue task's title + "+N"; a click
+// reveals the full list, each entry opening its task.
+const reminderDeadline = (reminder: ReminderDto): number =>
+  new Date(reminder.dueDate ?? reminder.occurrenceDate ?? 0).getTime();
+const sortedReminders = computed(() =>
+  [...(props.reminders ?? [])].sort((left, right) => reminderDeadline(left) - reminderDeadline(right)),
+);
+const todayColumnIndex = computed(() => props.days.findIndex((day) => day.getTime() === today));
+const showOverdue = computed(() => sortedReminders.value.length > 0 && todayColumnIndex.value >= 0);
+const overdueOpen = ref(false);
+const formatOverdueSince = (reminder: ReminderDto): string => formatFullDay(new Date(reminderDeadline(reminder)));
+const onReminderPick = (reminder: ReminderDto): void => {
+  overdueOpen.value = false;
+  emit('reminder', { reminder });
+};
 
 // --- Interaction wiring -----------------------------------------------------
 
@@ -246,6 +268,31 @@ defineExpose({ dropAt });
       </div>
     </div>
 
+    <div v-if="showOverdue" class="overdue-row">
+      <div class="gutter-spacer overdue-label">Overdue</div>
+      <div v-for="(column, index) in dayColumns" :key="column.day.toISOString()" class="overdue-cell">
+        <div v-if="index === todayColumnIndex" class="overdue-anchor">
+          <button type="button" class="overdue-chip" @click="overdueOpen = !overdueOpen">
+            <span class="warn-dot">⚠</span>
+            <span class="oc-title">{{ sortedReminders[0].title }}</span>
+            <span v-if="sortedReminders.length > 1" class="more">+{{ sortedReminders.length - 1 }}</span>
+          </button>
+          <div v-if="overdueOpen" class="overdue-list">
+            <button
+              v-for="reminder in sortedReminders"
+              :key="reminder.idItemOccurrence"
+              type="button"
+              class="overdue-item"
+              @click="onReminderPick(reminder)"
+            >
+              <span class="oi-title">{{ reminder.title }}</span>
+              <span class="oi-when">due {{ formatOverdueSince(reminder) }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="hasAllDay" class="all-day-row">
       <div class="gutter-spacer all-day-label">All day</div>
       <div v-for="column in dayColumns" :key="column.day.toISOString()" class="all-day-cell">
@@ -340,9 +387,103 @@ defineExpose({ dropAt });
 }
 
 .grid-header,
-.all-day-row {
+.all-day-row,
+.overdue-row {
   display: flex;
   border-bottom: 1px solid var(--border);
+}
+
+.overdue-label {
+  font-size: 11px;
+  color: #b45309;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 6px;
+}
+
+.overdue-cell {
+  flex: 1;
+  border-left: 1px solid var(--border);
+  padding: 3px 4px;
+  min-width: 0;
+}
+
+/* Anchor for the absolutely-positioned dropdown; the chip is a single row. */
+.overdue-anchor {
+  position: relative;
+}
+
+.overdue-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  padding: 2px 6px;
+  border: 1px solid rgba(180, 83, 9, 0.5);
+  border-radius: 4px;
+  background: rgba(180, 83, 9, 0.12);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.overdue-chip .oc-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.overdue-chip .more {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.overdue-list {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  z-index: 6;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  padding: 4px;
+}
+
+.overdue-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.overdue-item:hover {
+  background: var(--border-subtle, rgba(127, 127, 127, 0.15));
+}
+
+.overdue-item .oi-when {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .day-header {

@@ -33,7 +33,7 @@ export interface ReminderRow {
   itemId: number;
   title: string;
   occurrenceDate: Date | null;
-  dueDate: Date;
+  dueDate: Date | null; // null = overdue by its slot time (occurrenceDate), not a dueDate
   status: OccurrenceStatus;
 }
 
@@ -237,9 +237,13 @@ export const scheduleOccurrence = (
 //  Reminder engine.
 // -----------------------------------------------------------------------------
 
-// Auto-cancel superseded occurrences: for each recurrent series, any materialized
-// occurrence still `todo` whose slot precedes the most recent arrived slot is
-// cancelled — you will not do last week's instance once this week's has arrived.
+// Maintenance for each recurrent series (§11):
+//  1. Materialize the latest ARRIVED slot as `todo` (find-or-create) so an ignored
+//     recurring task still has a row and thus surfaces as an overdue reminder. Only
+//     this one slot is materialized — never the whole history — so there is no row
+//     explosion. A slot already actioned (done/cancelled) is left as-is.
+//  2. Auto-cancel superseded occurrences: any `todo` slot preceding that latest slot
+//     is cancelled — you will not do last week's instance once this week's arrived.
 export const runReminderMaintenance = async (workspaceId: number, userId: number, now: Date): Promise<void> => {
   const recurrent = await db
     .select({ item })
@@ -250,6 +254,9 @@ export const runReminderMaintenance = async (workspaceId: number, userId: number
     const latest = latestArrivedSlot(definition, now);
     if (latest === null) {
       continue;
+    }
+    if (definition.type === 'task') {
+      await ensureOccurrence(definition, userId, latest);
     }
     await db
       .update(itemOccurrence)
@@ -264,7 +271,10 @@ export const runReminderMaintenance = async (workspaceId: number, userId: number
   }
 };
 
-// Overdue reminders: materialized occurrences still `todo` past their dueDate.
+// Overdue reminders: TASK occurrences still `todo` whose effective deadline has
+// passed. The deadline is the explicit `dueDate` when set, otherwise the slot's
+// `occurrenceDate` (a scheduled/recurring task is due at its slot time). Events are
+// excluded — they are not "todo" work.
 export const listReminders = async (workspaceId: number, userId: number, now: Date): Promise<ReminderRow[]> => {
   await runReminderMaintenance(workspaceId, userId, now);
 
@@ -272,24 +282,23 @@ export const listReminders = async (workspaceId: number, userId: number, now: Da
     .select({ occurrence: itemOccurrence, title: item.title })
     .from(itemOccurrence)
     .innerJoin(item, eq(itemOccurrence.itemId, item.idItem))
-    .where(and(eq(item.workspaceId, workspaceId), eq(itemOccurrence.status, 'todo'), lt(itemOccurrence.dueDate, now)));
+    .where(
+      and(
+        eq(item.workspaceId, workspaceId),
+        eq(item.type, 'task'),
+        eq(itemOccurrence.status, 'todo'),
+        or(lt(itemOccurrence.dueDate, now), and(isNull(itemOccurrence.dueDate), lt(itemOccurrence.occurrenceDate, now))),
+      ),
+    );
 
-  const reminders: ReminderRow[] = [];
-  for (const row of rows) {
-    const { dueDate } = row.occurrence;
-    if (dueDate === null) {
-      continue; // guarded by the query, but keeps dueDate a non-null Date
-    }
-    reminders.push({
-      idItemOccurrence: row.occurrence.idItemOccurrence,
-      itemId: row.occurrence.itemId,
-      title: row.title,
-      occurrenceDate: row.occurrence.occurrenceDate,
-      dueDate,
-      status: row.occurrence.status,
-    });
-  }
-  return reminders;
+  return rows.map((row) => ({
+    idItemOccurrence: row.occurrence.idItemOccurrence,
+    itemId: row.occurrence.itemId,
+    title: row.title,
+    occurrenceDate: row.occurrence.occurrenceDate,
+    dueDate: row.occurrence.dueDate,
+    status: row.occurrence.status,
+  }));
 };
 
 // -----------------------------------------------------------------------------

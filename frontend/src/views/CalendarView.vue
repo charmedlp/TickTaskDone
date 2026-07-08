@@ -13,7 +13,7 @@ import { createScheduledItem } from '@/api/scheduledItems';
 import { deleteTimeBlock, updateTimeBlock } from '@/api/timeBlocks';
 import { moveOccurrence, scheduleOccurrence, setOccurrenceStatus, updateOccurrence } from '@/api/occurrenceActions';
 import { deleteItem, fetchItem, listItems, updateItem } from '@/api/items';
-import type { BacklogTaskDto } from '@ticktaskdone/shared';
+import type { BacklogTaskDto, ReminderDto } from '@ticktaskdone/shared';
 import TimeGrid from '@/components/calendar/TimeGrid.vue';
 import MonthGrid from '@/components/calendar/MonthGrid.vue';
 import CalendarListView from '@/components/calendar/CalendarListView.vue';
@@ -26,7 +26,7 @@ import type { FormSeed, ScheduleSubmit, UpdateSubmit } from '@/components/calend
 import type { MenuAction } from '@/components/calendar/contextMenu.types';
 
 const store = useCalendarStore();
-const { view, mode, anchor, occurrences, backlog, loading, error, window: visibleWindow } = storeToRefs(store);
+const { view, mode, anchor, occurrences, backlog, reminders, loading, error, window: visibleWindow } = storeToRefs(store);
 
 // Two-way binding for the <input type="date"> start-date picker.
 const anchorInput = computed({
@@ -309,6 +309,38 @@ const openEdit = async (block: CalendarBlock): Promise<void> => {
   };
 };
 
+// Open an overdue reminder's task for editing. It may have no timeBlock, so we anchor
+// the (unused-in-edit) time fields to its effective deadline.
+const onReminder = async (payload: { reminder: ReminderDto }): Promise<void> => {
+  const reminder = payload.reminder;
+  const item = await fetchItem(reminder.itemId).catch(() => null);
+  if (!item) {
+    error.value = 'Could not load the item to edit.';
+    return;
+  }
+  const anchorIso = reminder.dueDate ?? reminder.occurrenceDate;
+  const start = anchorIso ? new Date(anchorIso) : new Date();
+  formSeed.value = {
+    mode: 'edit',
+    timeStart: start,
+    timeEnd: new Date(start.getTime() + 30 * 60_000),
+    idItem: item.idItem,
+    idItemOccurrence: reminder.idItemOccurrence,
+    timeBlockId: null,
+    type: item.type,
+    title: item.title,
+    projectId: item.projectId,
+    description: item.description,
+    color: item.color,
+    estimatedMinutes: item.estimatedMinutes,
+    dueDate: reminder.dueDate ? new Date(reminder.dueDate) : null,
+    isBlocking: false,
+    allDay: false,
+    recurrence: parseRrule(item.rrule),
+    categoryIds: item.categoryIds,
+  };
+};
+
 const menuActions = computed<MenuAction[]>(() => {
   const block = menu.value.block;
   if (!block) {
@@ -465,6 +497,7 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
           :blocks="blocks"
           :drop-point="dropPoint"
           :readonly="readonly"
+          :reminders="reminders"
           @create="onCreate"
           @move="onMove"
           @resize="onResize"
@@ -473,6 +506,7 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
           @menu="onMenu"
           @edit="(payload) => openEdit(payload.block)"
           @timer="onTimer"
+          @reminder="onReminder"
         />
         <MonthGrid
           v-else-if="view === 'month'"

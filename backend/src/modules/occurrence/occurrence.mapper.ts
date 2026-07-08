@@ -26,6 +26,6 @@ export const toReminderDto = (row: ReminderRow): ReminderDto => ({
   itemId: row.itemId,
   title: row.title,
   occurrenceDate: row.occurrenceDate?.toISOString() ?? null,
-  dueDate: row.dueDate.toISOString(),
+  dueDate: row.dueDate?.toISOString() ?? null,
   status: row.status,
 });

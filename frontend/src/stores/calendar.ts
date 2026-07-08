@@ -1,8 +1,9 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import type { BacklogTaskDto, OccurrenceViewDto } from '@ticktaskdone/shared';
+import type { BacklogTaskDto, OccurrenceViewDto, ReminderDto } from '@ticktaskdone/shared';
 import { fetchOccurrences } from '@/api/occurrences';
 import { fetchBacklog } from '@/api/backlog';
+import { fetchReminders } from '@/api/reminders';
 import { ApiError } from '@/api/client';
 import { type CalendarViewType, stepAnchor, windowForView } from '@/lib/datetime';
 
@@ -18,6 +19,7 @@ export const useCalendarStore = defineStore('calendar', () => {
 
   const occurrences = ref<OccurrenceViewDto[]>([]);
   const backlog = ref<BacklogTaskDto[]>([]);
+  const reminders = ref<ReminderDto[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
 
@@ -38,6 +40,12 @@ export const useCalendarStore = defineStore('calendar', () => {
     } finally {
       loading.value = false;
     }
+    await loadReminders(); // window-independent; a soft failure must not break the feed
+  };
+
+  // Overdue reminders ("now"-based, not window-scoped). A failure is non-fatal.
+  const loadReminders = async (): Promise<void> => {
+    reminders.value = await fetchReminders().catch(() => []);
   };
 
   const setView = (next: CalendarViewType): void => {
@@ -82,7 +90,7 @@ export const useCalendarStore = defineStore('calendar', () => {
     error.value = null;
     try {
       const result = await operation();
-      await Promise.all([load(true), loadBacklog()]); // silent reconcile of feed + backlog
+      await Promise.all([load(true), loadBacklog()]); // silent reconcile of feed + backlog (load also refreshes reminders)
       return result;
     } catch (cause) {
       error.value = cause instanceof ApiError ? cause.message : 'Action failed.';
@@ -99,11 +107,13 @@ export const useCalendarStore = defineStore('calendar', () => {
     mode,
     occurrences,
     backlog,
+    reminders,
     loading,
     error,
     window,
     load,
     loadBacklog,
+    loadReminders,
     setView,
     step,
     goToToday,
