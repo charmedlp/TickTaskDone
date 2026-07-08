@@ -116,7 +116,10 @@ export const item = mysqlTable('item', {
   estimatedMinutes: int('estimatedMinutes'),
   // Récurrence : les deux vont ensemble (null ensemble ou remplis ensemble)
   rrule:            varchar('rrule', { length: 1000 }),          // motif RFC 5545 (sans DTSTART)
-  recurrenceStart:  datetime('recurrenceStart', { mode: 'date' }), // ancre DTSTART
+  recurrenceStart:  datetime('recurrenceStart', { mode: 'date' }), // ancre DTSTART (instant absolu)
+  // Fuseau IANA (ex. America/Montreal) pour l'heure murale : récurrence DST-correcte,
+  // affichage de occurrenceDate / dueDate. null = flottant / hérité (legacy).
+  timezone:         varchar('timezone', { length: 64 }),
   ...audit,
 }, (t) => [
   index('item_workspace_idx').on(t.workspaceId),
@@ -151,6 +154,7 @@ export const timeBlock = mysqlTable('timeBlock', {
   timeEnd:          datetime('timeEnd', { mode: 'date' }).notNull(),
   allDay:           boolean('allDay').default(false).notNull(),
   isBlocking:       boolean('isBlocking').default(false).notNull(),
+  timezone:         varchar('timezone', { length: 64 }), // IANA id ; null = pleine-journée flottante
   ...audit,
 }, (t) => [
   index('timeBlock_occurrence_idx').on(t.itemOccurrenceId),
@@ -164,6 +168,7 @@ export const timeLog = mysqlTable('timeLog', {
   startedAt:        datetime('startedAt', { mode: 'date' }).notNull(),
   endedAt:          datetime('endedAt', { mode: 'date' }), // null = chrono en cours
   source:           mysqlEnum('source', ['timer', 'manual']).default('timer').notNull(),
+  timezone:         varchar('timezone', { length: 64 }), // IANA id du fuseau de saisie
   ...audit,
 }, (t) => [
   index('timeLog_occurrence_idx').on(t.itemOccurrenceId),

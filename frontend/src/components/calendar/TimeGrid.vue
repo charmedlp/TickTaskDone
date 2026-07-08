@@ -13,6 +13,8 @@ const props = defineProps<{
   blocks: CalendarBlock[];
   // Live pointer of an in-progress backlog drag, to draw the dashed drop preview.
   dropPoint?: { x: number; y: number; durationMinutes: number } | null;
+  // Actual view is read-only: no create / move / resize / copy (only view + menu).
+  readonly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -23,6 +25,7 @@ const emit = defineEmits<{
   menu: [payload: { block: CalendarBlock; x: number; y: number }];
   toggle: [payload: { block: CalendarBlock }];
   edit: [payload: { block: CalendarBlock }];
+  timer: [payload: { block: CalendarBlock }];
 }>();
 
 const hours = Array.from({ length: 24 }, (_unused, index) => index);
@@ -103,6 +106,9 @@ const contextFor = (positioned: PositionedBlock, dayIndex: number): BlockContext
 // Create-by-drag with the mouse; touch keeps native scrolling (create via the
 // toolbar "New" button — touch create-by-drag is a later refinement).
 const onGridPointerDown = (event: PointerEvent): void => {
+  if (props.readonly) {
+    return;
+  }
   if (event.pointerType === 'mouse' && event.button === 0) {
     selectedKey.value = null;
     startCreate(event);
@@ -111,11 +117,18 @@ const onGridPointerDown = (event: PointerEvent): void => {
 
 const onBlockGrab = (event: PointerEvent, context: BlockContext): void => {
   selectedKey.value = context.block.key;
+  if (props.readonly) {
+    startLongPress(event, context.block); // still allow the touch menu; no move
+    return;
+  }
   startBlock(event, 'move', context);
   startLongPress(event, context.block);
 };
 
 const onBlockResize = (payload: { event: PointerEvent; edge: 'start' | 'end' }, context: BlockContext): void => {
+  if (props.readonly) {
+    return;
+  }
   selectedKey.value = context.block.key;
   startBlock(payload.event, payload.edge === 'start' ? 'resizeStart' : 'resizeEnd', context);
 };
@@ -157,7 +170,7 @@ const ghostStyle = computed(() => {
 const hoverPoint = ref<{ dayIndex: number; startMinutes: number } | null>(null);
 
 const onHoverMove = (event: PointerEvent): void => {
-  if (event.pointerType !== 'mouse' || draft.value || (event.target as HTMLElement).closest('.calendar-block')) {
+  if (props.readonly || event.pointerType !== 'mouse' || draft.value || (event.target as HTMLElement).closest('.calendar-block')) {
     hoverPoint.value = null;
     return;
   }
@@ -279,11 +292,13 @@ defineExpose({ dropAt });
             :box="positioned.box"
             :body-height="bodyHeight"
             :selected="selectedKey === positioned.block.key"
+            :can-time="!readonly"
             @grab="onBlockGrab($event, contextFor(positioned, columnIndex))"
             @resize="onBlockResize($event, contextFor(positioned, columnIndex))"
             @menu="emit('menu', { block: positioned.block, x: $event.clientX, y: $event.clientY })"
             @toggle="emit('toggle', { block: positioned.block })"
             @edit="emit('edit', { block: positioned.block })"
+            @timer="emit('timer', { block: positioned.block })"
           />
 
           <div

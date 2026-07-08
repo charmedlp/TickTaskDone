@@ -7,6 +7,7 @@ export interface TimeBlockDto {
   timeEnd: string;
   allDay: boolean;
   isBlocking: boolean;
+  timezone: string | null; // IANA id; null = all-day floating
   createdAt: string;
   updatedAt: string;
 }

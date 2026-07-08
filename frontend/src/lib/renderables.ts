@@ -11,7 +11,8 @@ export const DEFAULT_VIRTUAL_DURATION_MINUTES = 30;
 export interface CalendarBlock {
   key: string;
   occurrence: OccurrenceViewDto;
-  timeBlockId: number | null; // null for a virtual (not-yet-materialized) preview
+  timeBlockId: number | null; // null for a virtual preview or an actual-view log block
+  timeLogId: number | null; // set only for an actual-view block (real time logged)
   start: Date;
   end: Date;
   allDay: boolean;
@@ -19,35 +20,73 @@ export interface CalendarBlock {
   isVirtual: boolean;
 }
 
-export const toCalendarBlocks = (occurrences: OccurrenceViewDto[]): CalendarBlock[] => {
-  const blocks: CalendarBlock[] = [];
-  for (const occurrence of occurrences) {
-    if (occurrence.timeBlocks.length > 0) {
-      for (const timeBlock of occurrence.timeBlocks) {
-        blocks.push({
-          key: `tb-${timeBlock.idTimeBlock}`,
-          occurrence,
-          timeBlockId: timeBlock.idTimeBlock,
-          start: new Date(timeBlock.timeStart),
-          end: new Date(timeBlock.timeEnd),
-          allDay: timeBlock.allDay,
-          isBlocking: timeBlock.isBlocking,
-          isVirtual: false,
-        });
-      }
-    } else if (occurrence.occurrenceDate !== null) {
-      const start = new Date(occurrence.occurrenceDate);
-      const minutes = occurrence.estimatedMinutes ?? DEFAULT_VIRTUAL_DURATION_MINUTES;
-      blocks.push({
+// Planned = the timeBlocks (the plan); Actual = the timeLogs (real time spent),
+// placed at startedAt/endedAt. Per brief §6 events render identically in both views
+// (they have no timeLogs); only tasks differ. Actual-view blocks are read-only —
+// the timer (M4c) is the only writer of logs.
+export type CalendarRenderMode = 'planned' | 'actual';
+
+const plannedBlocks = (occurrence: OccurrenceViewDto): CalendarBlock[] => {
+  if (occurrence.timeBlocks.length > 0) {
+    return occurrence.timeBlocks.map((timeBlock) => ({
+      key: `tb-${timeBlock.idTimeBlock}`,
+      occurrence,
+      timeBlockId: timeBlock.idTimeBlock,
+      timeLogId: null,
+      start: new Date(timeBlock.timeStart),
+      end: new Date(timeBlock.timeEnd),
+      allDay: timeBlock.allDay,
+      isBlocking: timeBlock.isBlocking,
+      isVirtual: false,
+    }));
+  }
+  if (occurrence.occurrenceDate !== null) {
+    const start = new Date(occurrence.occurrenceDate);
+    const minutes = occurrence.estimatedMinutes ?? DEFAULT_VIRTUAL_DURATION_MINUTES;
+    return [
+      {
         key: `occ-${occurrence.itemId}-${occurrence.occurrenceDate}`,
         occurrence,
         timeBlockId: null,
+        timeLogId: null,
         start,
         end: new Date(start.getTime() + minutes * 60_000),
         allDay: false,
         isBlocking: false,
         isVirtual: true,
-      });
+      },
+    ];
+  }
+  return [];
+};
+
+// A running segment (endedAt null) is drawn from its start to `now` so an in-progress
+// timer shows a live extent.
+const actualBlocks = (occurrence: OccurrenceViewDto, now: Date): CalendarBlock[] =>
+  occurrence.timeLogs.map((log) => ({
+    key: `tl-${log.idTimeLog}`,
+    occurrence,
+    timeBlockId: null,
+    timeLogId: log.idTimeLog,
+    start: new Date(log.startedAt),
+    end: log.endedAt ? new Date(log.endedAt) : now,
+    allDay: false,
+    isBlocking: false,
+    isVirtual: false,
+  }));
+
+export const toCalendarBlocks = (
+  occurrences: OccurrenceViewDto[],
+  mode: CalendarRenderMode = 'planned',
+  now: Date = new Date(),
+): CalendarBlock[] => {
+  const blocks: CalendarBlock[] = [];
+  for (const occurrence of occurrences) {
+    // Events are planned-only entries — identical in both views.
+    if (mode === 'actual' && occurrence.type === 'task') {
+      blocks.push(...actualBlocks(occurrence, now));
+    } else {
+      blocks.push(...plannedBlocks(occurrence));
     }
   }
   return blocks;
@@ -82,17 +121,35 @@ export const timedBlocksForDay = (blocks: CalendarBlock[], dayStart: Date): DayT
   return entries;
 };
 
-// All-day (and multi-day) blocks intersecting the given day.
+// All-day blocks are FLOATING: their instant carries a date at UTC midnight and
+// they must not shift across the viewer's timezone. So their day is read from the
+// UTC date and mapped to the equivalent LOCAL midnight (to align with grid days).
+const allDayLocalStart = (block: CalendarBlock): Date =>
+  new Date(block.start.getUTCFullYear(), block.start.getUTCMonth(), block.start.getUTCDate());
+const allDayLocalEnd = (block: CalendarBlock): Date =>
+  new Date(block.end.getUTCFullYear(), block.end.getUTCMonth(), block.end.getUTCDate());
+
+// The local Date a block sorts / groups by (all-day = its floating date, timed = its instant).
+export const displayStart = (block: CalendarBlock): Date => (block.allDay ? allDayLocalStart(block) : block.start);
+
+const coversDay = (block: CalendarBlock, dayStart: Date, dayEnd: Date): boolean => {
+  if (block.allDay) {
+    return allDayLocalStart(block).getTime() <= dayStart.getTime() && dayStart.getTime() < allDayLocalEnd(block).getTime();
+  }
+  return block.start.getTime() < dayEnd.getTime() && block.end.getTime() > dayStart.getTime();
+};
+
+// All-day (and multi-day) blocks intersecting the given local day.
 export const allDayBlocksForDay = (blocks: CalendarBlock[], dayStart: Date): CalendarBlock[] => {
   const dayEnd = addDays(dayStart, 1);
-  return blocks.filter((block) => block.allDay && block.start < dayEnd && block.end > dayStart);
+  return blocks.filter((block) => block.allDay && coversDay(block, dayStart, dayEnd));
 };
 
 // Any block (timed or all-day) intersecting the given day, all-day first then by
-// start time. Used by the Month and List views.
+// start. Used by the Month and List views.
 export const blocksForDay = (blocks: CalendarBlock[], dayStart: Date): CalendarBlock[] => {
   const dayEnd = addDays(dayStart, 1);
   return blocks
-    .filter((block) => block.start < dayEnd && block.end > dayStart)
-    .sort((left, right) => Number(right.allDay) - Number(left.allDay) || left.start.getTime() - right.start.getTime());
+    .filter((block) => coversDay(block, dayStart, dayEnd))
+    .sort((left, right) => Number(right.allDay) - Number(left.allDay) || displayStart(left).getTime() - displayStart(right).getTime());
 };

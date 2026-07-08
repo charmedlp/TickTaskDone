@@ -6,8 +6,8 @@ import { fetchBacklog } from '@/api/backlog';
 import { ApiError } from '@/api/client';
 import { type CalendarViewType, stepAnchor, windowForView } from '@/lib/datetime';
 
-// Planned = timeBlocks (the plan). Actual = timeLogs — a later Phase 4 milestone,
-// so the toggle exists but only planned is wired for now.
+// Planned = timeBlocks (the plan). Actual = timeLogs (real time spent). The toggle
+// picks which the calendar renders; Actual is read-only (the timer writes logs).
 export type CalendarMode = 'planned' | 'actual';
 
 export const useCalendarStore = defineStore('calendar', () => {

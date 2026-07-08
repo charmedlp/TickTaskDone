@@ -1,34 +1,31 @@
 import type { CalendarViewType, DateWindow } from './datetime';
 import { addDays } from './datetime';
 
-// All formatting is UTC (see datetime.ts): the grid renders on a UTC wall-clock.
+// All formatting is LOCAL (see datetime.ts): the grid renders on the viewer's
+// wall-clock. (The default Intl timezone is the browser's; tests pin TZ=UTC.)
 
 const dayHeaderFormatter = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'UTC',
   weekday: 'short',
   month: 'short',
   day: 'numeric',
 });
 
 const dayTitleFormatter = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'UTC',
   weekday: 'long',
   month: 'long',
   day: 'numeric',
   year: 'numeric',
 });
 
-const monthTitleFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC', month: 'long', year: 'numeric' });
+const monthTitleFormatter = new Intl.DateTimeFormat('en-CA', { month: 'long', year: 'numeric' });
 
 const longDateFormatter = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'UTC',
   month: 'long',
   day: 'numeric',
   year: 'numeric',
 });
 
 const timeFormatter = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'UTC',
   hour: '2-digit',
   minute: '2-digit',
   hour12: false,
@@ -57,5 +54,5 @@ export const formatWindowTitle = (view: CalendarViewType, window: DateWindow): s
     return `From ${longDateFormatter.format(window.from)}`;
   }
   const lastDay = addDays(window.to, -1);
-  return `${dayHeaderFormatter.format(window.from)} – ${dayHeaderFormatter.format(lastDay)}, ${lastDay.getUTCFullYear()}`;
+  return `${dayHeaderFormatter.format(window.from)} – ${dayHeaderFormatter.format(lastDay)}, ${lastDay.getFullYear()}`;
 };

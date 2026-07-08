@@ -9,6 +9,7 @@ export const toTimeBlockDto = (row: TimeBlock): TimeBlockDto => ({
   timeEnd: row.timeEnd.toISOString(),
   allDay: row.allDay,
   isBlocking: row.isBlocking,
+  timezone: row.timezone,
   createdAt: row.createdAt.toISOString(),
   updatedAt: row.updatedAt.toISOString(),
 });

@@ -4,7 +4,13 @@ import type { LayoutBox } from '@/lib/layout';
 import type { CalendarBlock } from '@/lib/renderables';
 import { formatTimeRange } from '@/lib/format';
 
-const props = defineProps<{ block: CalendarBlock; box: LayoutBox; bodyHeight: number; selected: boolean }>();
+const props = defineProps<{
+  block: CalendarBlock;
+  box: LayoutBox;
+  bodyHeight: number;
+  selected: boolean;
+  canTime?: boolean; // show the timer affordance (planned view only)
+}>();
 
 const emit = defineEmits<{
   grab: [event: PointerEvent];
@@ -12,6 +18,7 @@ const emit = defineEmits<{
   menu: [event: MouseEvent];
   toggle: [];
   edit: [];
+  timer: [];
 }>();
 
 // A task carries a checkbox; an event does not (brief §4). Done -> checked + faded.
@@ -73,7 +80,17 @@ const onBodyPointerDown = (event: PointerEvent): void => {
 
     <span class="title" :style="{ '--title-lines': titleLines }">{{ block.occurrence.title }}</span>
     <span v-if="showTime" class="time">{{ formatTimeRange(block.start, block.end) }}</span>
-    <span v-if="isTask" class="timer" aria-hidden="true" title="Timer (coming soon)">⏱</span>
+    <button
+      v-if="isTask && canTime"
+      type="button"
+      class="timer"
+      title="Start timer"
+      aria-label="Start timer"
+      @pointerdown.stop
+      @click.stop="emit('timer')"
+    >
+      ⏱
+    </button>
 
     <span
       class="resize-handle bottom"
@@ -169,9 +186,21 @@ const onBodyPointerDown = (event: PointerEvent): void => {
 .timer {
   position: absolute;
   bottom: 2px;
-  right: 4px;
-  font-size: 10px;
+  right: 3px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 1px 2px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.18);
+  color: #fff;
   opacity: 0.75;
+  cursor: pointer;
+}
+
+.timer:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.3);
 }
 
 .resize-handle {

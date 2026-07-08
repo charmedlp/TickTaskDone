@@ -7,7 +7,7 @@ import {
   type ItemType,
   type ProjectDto,
 } from '@ticktaskdone/shared';
-import { fromDateTimeInputValue, toDateTimeInputValue } from '@/lib/datetime';
+import { browserTimezone, fromDateTimeInputValue, toDateTimeInputValue } from '@/lib/datetime';
 import { buildRrule, emptyRecurrence, type Frequency, type RecurrenceModel } from '@/lib/recurrenceModel';
 import CategoryPicker from './CategoryPicker.vue';
 import type { CategoryDto } from '@ticktaskdone/shared';
@@ -159,8 +159,28 @@ const buildItemFields = (recurring: boolean, recurrenceStart: Date | null) => ({
   estimatedMinutes: form.type === 'task' ? form.estimatedMinutes : null,
   rrule: recurring ? buildRrule(form.recurrence) : null,
   recurrenceStart,
+  timezone: browserTimezone(), // the item lives in the creator's timezone (recurrence, dueDate)
   categoryIds: [...form.categoryIds], // stored leaves; part of the item input (brief §8)
 });
+
+// All-day is FLOATING: store the date at UTC midnight and no timezone, so it never
+// shifts across viewers. A timed block stores the instant + the creator's timezone.
+const utcMidnight = (date: Date): Date => new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+
+const blockPayload = (start: Date, end: Date) => {
+  if (!form.allDay) {
+    return { timeStart: start, timeEnd: end, allDay: false, isBlocking: form.isBlocking, timezone: browserTimezone() };
+  }
+  const floatingStart = utcMidnight(start);
+  const floatingEnd = utcMidnight(end);
+  return {
+    timeStart: floatingStart,
+    timeEnd: floatingEnd.getTime() <= floatingStart.getTime() ? new Date(floatingStart.getTime() + 86_400_000) : floatingEnd,
+    allDay: true,
+    isBlocking: form.isBlocking,
+    timezone: null as string | null,
+  };
+};
 
 const submit = (): void => {
   errorMessage.value = null;
@@ -184,20 +204,23 @@ const submit = (): void => {
       timeBlockId: timeBlockId.value,
       allDay: form.allDay,
       isBlocking: form.isBlocking,
+      timezone: form.allDay ? null : browserTimezone(),
     });
     return;
   }
 
   // Schedule an existing item (no new item created).
   if (typeof source.value === 'number') {
+    const block = blockPayload(timeStart, timeEnd);
     emit('schedule', {
       itemId: source.value,
       isRecurrent: selectedItem.value?.rrule != null,
-      timeStart,
-      timeEnd,
-      allDay: form.allDay,
-      isBlocking: form.isBlocking,
+      timeStart: block.timeStart,
+      timeEnd: block.timeEnd,
+      allDay: block.allDay,
+      isBlocking: block.isBlocking,
       dueDate,
+      timezone: block.timezone,
     });
     return;
   }
@@ -208,7 +231,7 @@ const submit = (): void => {
     item: buildItemFields(recurring, recurring ? timeStart : null),
     occurrenceDate: recurring ? timeStart : null,
     dueDate,
-    timeBlock: { timeStart, timeEnd, allDay: form.allDay, isBlocking: form.isBlocking },
+    timeBlock: blockPayload(timeStart, timeEnd),
   };
   const parsed = createScheduledItemInput.safeParse(input);
   if (!parsed.success) {

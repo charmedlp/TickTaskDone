@@ -1,24 +1,28 @@
 // Custom date helpers — no external date library (Constitution: home-made by
-// default). All math is done in UTC: the backend stores and returns UTC, and we
-// render on a UTC wall-clock for now. Local-timezone display is a later hardening
-// (same open point as the backend), signalled rather than silently assumed.
+// default). The calendar renders on the viewer's LOCAL wall-clock: the backend
+// stores absolute instants, and we display them in local time (the browser's
+// timezone). Day boundaries, week/month math and the input controls are all local.
+// (Unit tests pin TZ=UTC so these stay deterministic across machines.)
 
 export type CalendarViewType = 'day' | 'week' | 'workWeek' | 'month' | 'list';
 
 export const MINUTES_PER_DAY = 24 * 60;
-const MILLISECONDS_PER_DAY = MINUTES_PER_DAY * 60 * 1000;
 
 export const startOfDay = (date: Date): Date => {
   const result = new Date(date);
-  result.setUTCHours(0, 0, 0, 0);
+  result.setHours(0, 0, 0, 0);
   return result;
 };
 
-export const addDays = (date: Date, days: number): Date => new Date(date.getTime() + days * MILLISECONDS_PER_DAY);
+// Add whole days keeping the local time of day (DST-safe: not a fixed 24h step).
+export const addDays = (date: Date, days: number): Date => {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+};
 
 // Days since the given week start (0 = Monday ... 6 = Sunday when weekStartsOn = 1).
-const dayOffsetFromWeekStart = (date: Date, weekStartsOn: number): number =>
-  (date.getUTCDay() - weekStartsOn + 7) % 7;
+const dayOffsetFromWeekStart = (date: Date, weekStartsOn: number): number => (date.getDay() - weekStartsOn + 7) % 7;
 
 // Start of the week containing `date`. weekStartsOn: 0 = Sunday, 1 = Monday (default).
 export const startOfWeek = (date: Date, weekStartsOn = 1): Date =>
@@ -26,19 +30,18 @@ export const startOfWeek = (date: Date, weekStartsOn = 1): Date =>
 
 export const startOfMonth = (date: Date): Date => {
   const result = startOfDay(date);
-  result.setUTCDate(1);
+  result.setDate(1);
   return result;
 };
 
 export const addMonths = (date: Date, months: number): Date => {
   const result = new Date(date);
-  result.setUTCMonth(result.getUTCMonth() + months);
+  result.setMonth(result.getMonth() + months);
   return result;
 };
 
-// Minutes elapsed since the start of `date`'s UTC day (used for vertical placement).
-export const minutesSinceStartOfDay = (date: Date): number =>
-  date.getUTCHours() * 60 + date.getUTCMinutes();
+// Minutes elapsed since the start of `date`'s local day (used for vertical placement).
+export const minutesSinceStartOfDay = (date: Date): number => date.getHours() * 60 + date.getMinutes();
 
 export interface DateWindow {
   from: Date;
@@ -84,20 +87,19 @@ export const daysInWindow = (window: DateWindow): Date[] => {
   return days;
 };
 
-// <input type="datetime-local"> helpers. The control is timezone-naive; we treat
-// its value as UTC wall-clock to stay consistent with the rest of the app.
+// <input type="datetime-local"> helpers — the control's value is the LOCAL wall-clock.
 const pad = (value: number): string => String(value).padStart(2, '0');
 
 export const toDateTimeInputValue = (date: Date): string =>
-  `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}T${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
+  `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 
-export const fromDateTimeInputValue = (value: string): Date => new Date(`${value}:00.000Z`);
+export const fromDateTimeInputValue = (value: string): Date => new Date(value); // parsed as local
 
-// <input type="date"> helpers (UTC wall-clock, like the datetime ones).
+// <input type="date"> helpers (local, like the datetime ones).
 export const toDateInputValue = (date: Date): string =>
-  `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+  `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 
-export const fromDateInputValue = (value: string): Date => new Date(`${value}T00:00:00.000Z`);
+export const fromDateInputValue = (value: string): Date => new Date(`${value}T00:00:00`); // local midnight
 
 // Step the anchor by one unit of the given view (previous/next navigation).
 export const stepAnchor = (view: CalendarViewType, anchor: Date, direction: 1 | -1): Date => {
@@ -112,3 +114,7 @@ export const stepAnchor = (view: CalendarViewType, anchor: Date, direction: 1 | 
       return addMonths(anchor, direction);
   }
 };
+
+// The viewer's IANA timezone, sent to the backend so it can store wall-clock intent
+// (DST-correct recurrence). All-day items store no timezone (they float).
+export const browserTimezone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone;

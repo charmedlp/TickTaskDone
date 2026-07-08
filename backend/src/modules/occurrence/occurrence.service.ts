@@ -1,4 +1,4 @@
-import { and, eq, gte, isNotNull, isNull, lt, lte } from 'drizzle-orm';
+import { and, eq, gte, isNotNull, isNull, lt, lte, or } from 'drizzle-orm';
 import type { MoveOccurrenceInput, OccurrenceStatus, ScheduleOccurrenceInput } from '@ticktaskdone/shared';
 import { db, type Transaction } from '../../db/db';
 import {
@@ -6,9 +6,11 @@ import {
   itemOccurrence,
   project,
   timeBlock,
+  timeLog,
   type Item,
   type ItemOccurrence,
   type TimeBlock,
+  type TimeLog,
 } from '../../db/schema';
 import { expandRecurrence, latestArrivedSlot, mergeSlots } from '../../domain/recurrence';
 
@@ -23,6 +25,7 @@ export interface OccurrenceView {
   dueDate: Date | null;
   materialized: boolean;
   timeBlocks: TimeBlock[];
+  timeLogs: TimeLog[];
 }
 
 export interface ReminderRow {
@@ -44,6 +47,7 @@ const buildView = (
   projectColor: string | null,
   occurrence: ItemOccurrence,
   blocksByOccurrence: Map<number, TimeBlock[]>,
+  logsByOccurrence: Map<number, TimeLog[]>,
 ): OccurrenceView => ({
   item: definition,
   projectColor,
@@ -53,6 +57,7 @@ const buildView = (
   dueDate: occurrence.dueDate,
   materialized: true,
   timeBlocks: blocksByOccurrence.get(occurrence.idItemOccurrence) ?? [],
+  timeLogs: logsByOccurrence.get(occurrence.idItemOccurrence) ?? [],
 });
 
 // -----------------------------------------------------------------------------
@@ -89,6 +94,16 @@ export const materializeOccurrence = async (
     .limit(1);
   return created;
 };
+
+// Ensure a concrete occurrence exists for (item, slot) and return it, with no other
+// change. Standalone (own transaction) wrapper over `materializeOccurrence` — the
+// timer uses it to obtain an occurrence id before logging real time on a virtual slot.
+export const ensureOccurrence = (
+  definition: Item,
+  userId: number,
+  occurrenceDate: Date | null,
+): Promise<ItemOccurrence> =>
+  db.transaction((transaction) => materializeOccurrence(transaction, definition, occurrenceDate, userId));
 
 // -----------------------------------------------------------------------------
 //  Deviations / actions on a slot.
@@ -136,6 +151,7 @@ export const moveOccurrence = (definition: Item, userId: number, input: MoveOccu
       };
       if (input.allDay !== undefined) placement.allDay = input.allDay;
       if (input.isBlocking !== undefined) placement.isBlocking = input.isBlocking;
+      if (input.timezone !== undefined) placement.timezone = input.timezone;
       await transaction.update(timeBlock).set(placement).where(eq(timeBlock.idTimeBlock, existing.idTimeBlock));
     } else {
       await transaction.insert(timeBlock).values({
@@ -145,6 +161,7 @@ export const moveOccurrence = (definition: Item, userId: number, input: MoveOccu
         timeEnd: input.timeEnd,
         allDay: input.allDay,
         isBlocking: input.isBlocking,
+        timezone: input.timezone,
         createdBy: userId,
         updatedBy: userId,
       });
@@ -182,6 +199,7 @@ export const scheduleOccurrence = (
       timeEnd: input.timeEnd,
       allDay: input.allDay,
       isBlocking: input.isBlocking,
+      timezone: input.timezone,
       createdBy: userId,
       updatedBy: userId,
     });
@@ -211,6 +229,7 @@ export const scheduleOccurrence = (
       dueDate: fresh.dueDate,
       materialized: true,
       timeBlocks,
+      timeLogs: [], // a freshly scheduled occurrence has no real time yet
     };
   });
 
@@ -291,13 +310,15 @@ export interface ItemContext {
 //    distinct virtuals can never collide on null; each expanded slot is emitted
 //    exactly once and cannot reappear in the catch-up pass (it has no block).
 //  - A materialized row masks the virtual on its slot (via mergeSlots).
-//  - The catch-up pass adds occurrences whose block is in-window but whose slot
-//    was not produced by expansion (non-recurrent scheduled items, moved slots).
+//  - The catch-up pass adds occurrences whose block OR log is in-window but whose
+//    slot was not produced by expansion (non-recurrent scheduled items, moved slots,
+//    or an occurrence with only real time logged in the window).
 export const assembleWindow = (
   definitions: ItemContext[],
   materializedByItem: Map<number, ItemOccurrence[]>,
-  occurrenceWithBlock: Map<number, ItemOccurrence>,
+  occurrenceWithPlacement: Map<number, ItemOccurrence>,
   blocksByOccurrence: Map<number, TimeBlock[]>,
+  logsByOccurrence: Map<number, TimeLog[]>,
   from: Date,
   to: Date,
 ): OccurrenceView[] => {
@@ -314,7 +335,7 @@ export const assembleWindow = (
     for (const entry of merged) {
       if (entry.materialized) {
         emitted.add(entry.materialized.idItemOccurrence);
-        views.push(buildView(definition, projectColor, entry.materialized, blocksByOccurrence));
+        views.push(buildView(definition, projectColor, entry.materialized, blocksByOccurrence, logsByOccurrence));
       } else {
         views.push({
           item: definition,
@@ -325,13 +346,14 @@ export const assembleWindow = (
           dueDate: null,
           materialized: false,
           timeBlocks: [],
+          timeLogs: [],
         });
       }
     }
   }
 
-  // Occurrences scheduled into the window but not produced by expansion above.
-  for (const [idItemOccurrence, occurrence] of occurrenceWithBlock) {
+  // Occurrences with a block or log in the window but not produced by expansion above.
+  for (const [idItemOccurrence, occurrence] of occurrenceWithPlacement) {
     if (emitted.has(idItemOccurrence)) {
       continue;
     }
@@ -340,7 +362,7 @@ export const assembleWindow = (
       continue;
     }
     emitted.add(idItemOccurrence);
-    views.push(buildView(context.item, context.projectColor, occurrence, blocksByOccurrence));
+    views.push(buildView(context.item, context.projectColor, occurrence, blocksByOccurrence, logsByOccurrence));
   }
 
   return views;
@@ -397,13 +419,38 @@ export const getWindowOccurrences = async (
       ),
     );
   const blocksByOccurrence = new Map<number, TimeBlock[]>();
-  const occurrenceWithBlock = new Map<number, ItemOccurrence>();
+  const occurrenceWithPlacement = new Map<number, ItemOccurrence>();
   for (const row of blockRows) {
     const list = blocksByOccurrence.get(row.occurrence.idItemOccurrence) ?? [];
     list.push(row.timeBlock);
     blocksByOccurrence.set(row.occurrence.idItemOccurrence, list);
-    occurrenceWithBlock.set(row.occurrence.idItemOccurrence, row.occurrence);
+    occurrenceWithPlacement.set(row.occurrence.idItemOccurrence, row.occurrence);
   }
 
-  return assembleWindow(definitions, materializedByItem, occurrenceWithBlock, blocksByOccurrence, from, to);
+  // Current user's real time logs overlapping the window, with their occurrence. A
+  // running segment (endedAt null) overlaps as soon as it started before `to`. This
+  // both attaches the actual-view data and surfaces occurrences that have only a log
+  // in the window (no block).
+  const logRows = await db
+    .select({ timeLog, occurrence: itemOccurrence })
+    .from(timeLog)
+    .innerJoin(itemOccurrence, eq(timeLog.itemOccurrenceId, itemOccurrence.idItemOccurrence))
+    .innerJoin(item, eq(itemOccurrence.itemId, item.idItem))
+    .where(
+      and(
+        eq(item.workspaceId, workspaceId),
+        eq(timeLog.userId, userId),
+        lte(timeLog.startedAt, to),
+        or(isNull(timeLog.endedAt), gte(timeLog.endedAt, from)),
+      ),
+    );
+  const logsByOccurrence = new Map<number, TimeLog[]>();
+  for (const row of logRows) {
+    const list = logsByOccurrence.get(row.occurrence.idItemOccurrence) ?? [];
+    list.push(row.timeLog);
+    logsByOccurrence.set(row.occurrence.idItemOccurrence, list);
+    occurrenceWithPlacement.set(row.occurrence.idItemOccurrence, row.occurrence);
+  }
+
+  return assembleWindow(definitions, materializedByItem, occurrenceWithPlacement, blocksByOccurrence, logsByOccurrence, from, to);
 };

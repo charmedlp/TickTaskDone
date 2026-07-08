@@ -12,6 +12,7 @@ export const createTimeBlockInput = z
     timeEnd: z.coerce.date(),
     allDay: z.boolean().optional(),
     isBlocking: z.boolean().optional(),
+    timezone: z.string().max(64).nullable(), // IANA id; null = all-day floating
   })
   .refine((value) => value.timeEnd > value.timeStart, {
     message: 'timeEnd must be after timeStart.',
@@ -28,6 +29,7 @@ export const updateTimeBlockInput = z
     timeEnd: z.coerce.date(),
     allDay: z.boolean(),
     isBlocking: z.boolean(),
+    timezone: z.string().max(64).nullable(),
   })
   .partial()
   .refine((value) => value.timeStart === undefined || value.timeEnd === undefined || value.timeEnd > value.timeStart, {

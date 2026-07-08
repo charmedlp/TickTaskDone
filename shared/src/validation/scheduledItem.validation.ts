@@ -17,6 +17,7 @@ export const createScheduledItemInput = z.object({
       timeEnd: z.coerce.date(),
       allDay: z.boolean().optional(),
       isBlocking: z.boolean().optional(),
+      timezone: z.string().max(64).nullable(),
     })
     .refine((value) => value.timeEnd > value.timeStart, { message: 'timeEnd must be after timeStart.' })
     .nullable(),

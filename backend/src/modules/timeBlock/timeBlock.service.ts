@@ -61,6 +61,7 @@ export const createTimeBlock = (
         timeEnd: input.timeEnd,
         allDay: input.allDay,
         isBlocking: input.isBlocking,
+        timezone: input.timezone,
         createdBy: userId,
         updatedBy: userId,
       })

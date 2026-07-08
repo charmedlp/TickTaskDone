@@ -1,5 +1,6 @@
 import { resolveColor, type OccurrenceViewDto, type ReminderDto } from '@ticktaskdone/shared';
 import { toTimeBlockDto } from '../timeBlock/timeBlock.mapper';
+import { toTimeLogDto } from '../timeLog/timeLog.mapper';
 import type { OccurrenceView, ReminderRow } from './occurrence.service';
 
 export const toOccurrenceViewDto = (view: OccurrenceView): OccurrenceViewDto => ({
@@ -9,6 +10,7 @@ export const toOccurrenceViewDto = (view: OccurrenceView): OccurrenceViewDto => 
   projectId: view.item.projectId,
   resolvedColor: resolveColor(view.item.color, view.projectColor),
   estimatedMinutes: view.item.estimatedMinutes,
+  timezone: view.item.timezone,
   isRecurrent: view.item.rrule !== null,
   idItemOccurrence: view.idItemOccurrence,
   occurrenceDate: view.occurrenceDate?.toISOString() ?? null,
@@ -16,6 +18,7 @@ export const toOccurrenceViewDto = (view: OccurrenceView): OccurrenceViewDto => 
   dueDate: view.dueDate?.toISOString() ?? null,
   materialized: view.materialized,
   timeBlocks: view.timeBlocks.map(toTimeBlockDto),
+  timeLogs: view.timeLogs.map(toTimeLogDto),
 });
 
 export const toReminderDto = (row: ReminderRow): ReminderDto => ({

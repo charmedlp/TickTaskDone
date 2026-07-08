@@ -59,6 +59,7 @@ export const createItem = async (
         estimatedMinutes: input.estimatedMinutes,
         rrule: input.rrule,
         recurrenceStart: input.recurrenceStart,
+        timezone: input.timezone,
         createdBy: userId,
         updatedBy: userId,
       })

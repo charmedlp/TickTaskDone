@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { startOfDay } from '@/lib/datetime';
-import { type CalendarBlock } from '@/lib/renderables';
+import { displayStart, type CalendarBlock } from '@/lib/renderables';
 import { formatFullDay, formatTime } from '@/lib/format';
 
 const props = defineProps<{ days: Date[]; blocks: CalendarBlock[] }>();
@@ -24,8 +24,8 @@ const fromDay = computed(() => props.days[0] ?? startOfDay(new Date()));
 // task appears several times.
 const allEntries = computed(() =>
   props.blocks
-    .filter((block) => block.start.getTime() >= fromDay.value.getTime())
-    .sort((left, right) => left.start.getTime() - right.start.getTime()),
+    .filter((block) => displayStart(block).getTime() >= fromDay.value.getTime())
+    .sort((left, right) => displayStart(left).getTime() - displayStart(right).getTime()),
 );
 
 const total = computed(() => allEntries.value.length);
@@ -38,7 +38,7 @@ const pageGroups = computed(() => {
   const groups: { day: Date; entries: CalendarBlock[] }[] = [];
   let currentKey: number | null = null;
   for (const block of pageEntries.value) {
-    const key = startOfDay(block.start).getTime();
+    const key = startOfDay(displayStart(block)).getTime();
     if (key !== currentKey) {
       groups.push({ day: startOfDay(block.start), entries: [] });
       currentKey = key;

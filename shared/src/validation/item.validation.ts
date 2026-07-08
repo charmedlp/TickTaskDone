@@ -15,7 +15,8 @@ const itemFields = z.object({
   color: hexColor.nullable(),
   estimatedMinutes: z.number().int().positive().nullable(),
   rrule: z.string().max(1000).nullable(), // RFC 5545 pattern (without DTSTART)
-  recurrenceStart: z.coerce.date().nullable(), // the DTSTART anchor
+  recurrenceStart: z.coerce.date().nullable(), // the DTSTART anchor (absolute instant)
+  timezone: z.string().max(64).nullable(), // IANA id for wall-clock (recurrence DST, dueDate)
 });
 
 // Category assignments (the chosen leaves only — never their ancestors). Optional:

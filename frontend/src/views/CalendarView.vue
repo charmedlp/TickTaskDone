@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { ItemDto, ProjectDto } from '@ticktaskdone/shared';
 import { useCalendarStore, type CalendarMode } from '@/stores/calendar';
-import { daysInWindow, fromDateInputValue, toDateInputValue, type CalendarViewType } from '@/lib/datetime';
+import { browserTimezone, daysInWindow, fromDateInputValue, toDateInputValue, type CalendarViewType } from '@/lib/datetime';
 import { formatWindowTitle } from '@/lib/format';
 import { toCalendarBlocks, type CalendarBlock } from '@/lib/renderables';
 import { emptyRecurrence, parseRrule } from '@/lib/recurrenceModel';
@@ -20,6 +20,8 @@ import CalendarListView from '@/components/calendar/CalendarListView.vue';
 import CalendarItemForm from '@/components/calendar/CalendarItemForm.vue';
 import CalendarContextMenu from '@/components/calendar/CalendarContextMenu.vue';
 import BacklogSidebar from '@/components/calendar/BacklogSidebar.vue';
+import TimerOverlay from '@/components/calendar/TimerOverlay.vue';
+import { timerKey, type TimerSession } from '@/components/calendar/timer.types';
 import type { FormSeed, ScheduleSubmit, UpdateSubmit } from '@/components/calendar/itemForm.types';
 import type { MenuAction } from '@/components/calendar/contextMenu.types';
 
@@ -52,12 +54,39 @@ const gridViews: CalendarViewType[] = ['day', 'week', 'workWeek'];
 const isGridView = computed(() => gridViews.includes(view.value));
 
 const days = computed(() => daysInWindow(visibleWindow.value));
-const blocks = computed(() => toCalendarBlocks(occurrences.value));
+const blocks = computed(() => toCalendarBlocks(occurrences.value, mode.value));
+// Actual view renders real time logs, which only the timer (M4c) may write, so the
+// calendar is read-only there: no create / move / resize / copy / backlog-drop.
+const readonly = computed(() => mode.value === 'actual');
 const title = computed(() => formatWindowTitle(view.value, visibleWindow.value));
 
 const projects = ref<ProjectDto[]>([]);
 const items = ref<ItemDto[]>([]);
 const formSeed = ref<FormSeed | null>(null);
+
+// Active timer sessions (planned view only). Several run at once — the user
+// oscillates between tasks by pausing one and starting another. One timer per task
+// slot (a second click on the same task is ignored). On close the feed is reloaded
+// so freshly captured time shows in the Actual view.
+const timerSessions = ref<TimerSession[]>([]);
+const onTimer = (payload: { block: CalendarBlock }): void => {
+  const occurrence = payload.block.occurrence;
+  const key = timerKey(occurrence.itemId, occurrence.occurrenceDate);
+  if (timerSessions.value.some((session) => session.key === key)) {
+    return; // this task is already being timed
+  }
+  timerSessions.value.push({
+    key,
+    itemId: occurrence.itemId,
+    title: occurrence.title,
+    occurrenceDate: occurrence.occurrenceDate,
+    idItemOccurrence: occurrence.idItemOccurrence,
+  });
+};
+const onTimerClose = (key: string): void => {
+  timerSessions.value = timerSessions.value.filter((session) => session.key !== key);
+  void store.load(true);
+};
 const menu = ref<{ open: boolean; x: number; y: number; block: CalendarBlock | null }>({
   open: false,
   x: 0,
@@ -98,11 +127,15 @@ const onBacklogUp = (event: PointerEvent): void => {
         allDay: false,
         isBlocking: false,
         dueDate: null,
+        timezone: browserTimezone(),
       }),
     );
   }
 };
 const onBacklogDragStart = (payload: { task: BacklogTaskDto; event: PointerEvent }): void => {
+  if (readonly.value) {
+    return; // scheduling is a planned-view action; Actual is read-only
+  }
   backlogDrag.value = { task: payload.task, x: payload.event.clientX, y: payload.event.clientY };
   window.addEventListener('pointermove', onBacklogMove);
   window.addEventListener('pointerup', onBacklogUp);
@@ -134,15 +167,29 @@ watch(visibleWindow, () => {
 
 // --- Scheduling primitives --------------------------------------------------
 
+const utcMidnight = (date: Date): Date => new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+
+// Placement for a (re)scheduled block: timed blocks carry the viewer's timezone;
+// all-day blocks stay floating (UTC-midnight date, no timezone), keeping their span.
+const placementFor = (block: CalendarBlock, start: Date, end: Date): { timeStart: Date; timeEnd: Date; timezone: string | null } => {
+  if (!block.allDay) {
+    return { timeStart: start, timeEnd: end, timezone: browserTimezone() };
+  }
+  const floatingStart = utcMidnight(start);
+  const spanDays = Math.max(1, Math.round((block.end.getTime() - block.start.getTime()) / 86_400_000));
+  return { timeStart: floatingStart, timeEnd: new Date(floatingStart.getTime() + spanDays * 86_400_000), timezone: null };
+};
+
 // Move/resize: patch the existing block, or materialize + place a virtual one.
-const reschedule = (block: CalendarBlock, start: Date, end: Date): Promise<unknown> =>
-  block.timeBlockId !== null
-    ? updateTimeBlock(block.timeBlockId, { timeStart: start, timeEnd: end })
+const reschedule = (block: CalendarBlock, start: Date, end: Date): Promise<unknown> => {
+  const placement = placementFor(block, start, end);
+  return block.timeBlockId !== null
+    ? updateTimeBlock(block.timeBlockId, placement)
     : moveOccurrence(block.occurrence.itemId, {
         occurrenceDate: block.occurrence.occurrenceDate ? new Date(block.occurrence.occurrenceDate) : null,
-        timeStart: start,
-        timeEnd: end,
+        ...placement,
       });
+};
 
 const setStatus = (block: CalendarBlock, status: 'todo' | 'done' | 'cancelled'): Promise<unknown> =>
   setOccurrenceStatus(block.occurrence.itemId, {
@@ -164,11 +211,10 @@ const copyBlock = async (block: CalendarBlock, start: Date, end: Date): Promise<
     // Both go through the schedule primitive (materialize + add a block): a split
     // adds a block to the source occurrence; a customOccurrence anchors a fresh
     // off-rule occurrence at the drop. A task is never both recurrent and split.
+    const placement = placementFor(block, start, end);
     return scheduleOccurrence(source.itemId, {
-      occurrenceDate:
-        strategy === 'customOccurrence' ? start : source.occurrenceDate ? new Date(source.occurrenceDate) : null,
-      timeStart: start,
-      timeEnd: end,
+      occurrenceDate: strategy === 'customOccurrence' ? placement.timeStart : source.occurrenceDate ? new Date(source.occurrenceDate) : null,
+      ...placement,
       allDay: block.allDay,
       isBlocking: block.isBlocking,
       dueDate: null,
@@ -176,6 +222,7 @@ const copyBlock = async (block: CalendarBlock, start: Date, end: Date): Promise<
   }
   // simpleCopy: a brand-new single-instance item copying the source's fields.
   const item = await fetchItem(source.itemId);
+  const placement = placementFor(block, start, end);
   return createScheduledItem({
     item: {
       type: item.type,
@@ -186,10 +233,11 @@ const copyBlock = async (block: CalendarBlock, start: Date, end: Date): Promise<
       estimatedMinutes: item.estimatedMinutes,
       rrule: null,
       recurrenceStart: null,
+      timezone: browserTimezone(),
     },
     occurrenceDate: null,
     dueDate: null,
-    timeBlock: { timeStart: start, timeEnd: end, allDay: block.allDay, isBlocking: block.isBlocking },
+    timeBlock: { ...placement, allDay: block.allDay, isBlocking: block.isBlocking },
   });
 };
 
@@ -267,10 +315,12 @@ const menuActions = computed<MenuAction[]>(() => {
     return [];
   }
   const occurrence = block.occurrence;
-  const actions: MenuAction[] = [
-    { id: 'edit', label: 'Edit…' },
-    { id: 'duplicate', label: 'Duplicate' },
-  ];
+  const actions: MenuAction[] = [{ id: 'edit', label: 'Edit…' }];
+  // Duplicate creates a PLANNED block, so it is a planned-view-only action (an actual
+  // block has no timeBlock to copy from anyway).
+  if (!readonly.value) {
+    actions.push({ id: 'duplicate', label: 'Duplicate' });
+  }
   if (occurrence.type === 'task') {
     actions.push(occurrence.status === 'done' ? { id: 'reopen', label: 'Mark as to-do' } : { id: 'done', label: 'Mark as done' });
     if (occurrence.status !== 'cancelled') {
@@ -295,7 +345,9 @@ const onMenuSelect = (id: string): void => {
       void openEdit(block);
       break;
     case 'duplicate':
-      store.apply(() => copyBlock(block, block.start, block.end));
+      if (!readonly.value) {
+        store.apply(() => copyBlock(block, block.start, block.end));
+      }
       break;
     case 'done':
       store.apply(() => setStatus(block, 'done'));
@@ -337,6 +389,7 @@ const onFormSchedule = (payload: ScheduleSubmit): void => {
       allDay: payload.allDay,
       isBlocking: payload.isBlocking,
       dueDate: payload.dueDate,
+      timezone: payload.timezone,
     }),
   );
   formSeed.value = null;
@@ -350,7 +403,11 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
       await updateOccurrence(payload.idItem, payload.idItemOccurrence, { dueDate: payload.dueDate });
     }
     if (payload.timeBlockId !== null) {
-      await updateTimeBlock(payload.timeBlockId, { allDay: payload.allDay, isBlocking: payload.isBlocking });
+      await updateTimeBlock(payload.timeBlockId, {
+        allDay: payload.allDay,
+        isBlocking: payload.isBlocking,
+        timezone: payload.timezone,
+      });
     }
   });
   formSeed.value = null;
@@ -401,15 +458,13 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
 
     <div class="workspace">
       <div class="body">
-        <p v-if="mode === 'actual'" class="placeholder">
-          The <strong>Actual</strong> view (timeLogs) arrives in a later Phase 4 milestone.
-        </p>
         <TimeGrid
-          v-else-if="isGridView"
+          v-if="isGridView"
           ref="timeGridRef"
           :days="days"
           :blocks="blocks"
           :drop-point="dropPoint"
+          :readonly="readonly"
           @create="onCreate"
           @move="onMove"
           @resize="onResize"
@@ -417,6 +472,7 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
           @toggle="onToggle"
           @menu="onMenu"
           @edit="(payload) => openEdit(payload.block)"
+          @timer="onTimer"
         />
         <MonthGrid
           v-else-if="view === 'month'"
@@ -424,6 +480,7 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
           :days="days"
           :blocks="blocks"
           :drop-point="dropPoint"
+          :readonly="readonly"
           @create="onCreate"
           @move="onMove"
           @menu="onMenu"
@@ -467,6 +524,14 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
       @schedule="onFormSchedule"
       @update="onFormUpdate"
       @close="formSeed = null"
+    />
+
+    <TimerOverlay
+      v-for="(session, index) in timerSessions"
+      :key="session.key"
+      :session="session"
+      :index="index"
+      @close="onTimerClose(session.key)"
     />
 
     <div

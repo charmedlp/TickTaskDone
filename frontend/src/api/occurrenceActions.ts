@@ -1,5 +1,6 @@
 import type {
   ItemOccurrenceDto,
+  MaterializeOccurrenceInput,
   MoveOccurrenceInput,
   OccurrenceViewDto,
   ScheduleOccurrenceInput,
@@ -9,6 +10,14 @@ import type {
 } from '@ticktaskdone/shared';
 import { workspaceId } from '@/config';
 import { api } from './client';
+
+// Find-or-create the slot's occurrence (no other change), returning it. Used by the
+// timer to obtain a concrete occurrence id before logging real time on a virtual slot.
+export const materializeOccurrence = (
+  itemId: number,
+  input: MaterializeOccurrenceInput,
+): Promise<ItemOccurrenceDto> =>
+  api.post<ItemOccurrenceDto>(`/workspaces/${workspaceId}/items/${itemId}/occurrences/materialize`, input);
 
 // Schedule an existing item: materialize + ADD a block (split, or new custom
 // occurrence for a recurrent item). Returns the assembled occurrence view.

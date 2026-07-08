@@ -76,3 +76,6 @@ frontend/ios/App/App/public/
 # =============================================================================
 .DS_Store
 Thumbs.db
+# shared est consommé directement en TS ; ne jamais committer sa compilation in-place
+shared/src/**/*.js
+shared/src/**/*.d.ts

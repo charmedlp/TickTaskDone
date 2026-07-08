@@ -32,6 +32,7 @@ export interface ScheduleSubmit {
   allDay: boolean;
   isBlocking: boolean;
   dueDate: Date | null;
+  timezone: string | null;
 }
 
 // Normalized edit payload emitted by the form; the caller applies the parts that
@@ -45,4 +46,5 @@ export interface UpdateSubmit {
   timeBlockId: number | null;
   allDay: boolean;
   isBlocking: boolean;
+  timezone: string | null; // block tz (null when all-day)
 }

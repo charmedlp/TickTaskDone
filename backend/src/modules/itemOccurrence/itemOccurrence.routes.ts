@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   createItemOccurrenceInput,
+  materializeOccurrenceInput,
   moveOccurrenceInput,
   scheduleOccurrenceInput,
   setOccurrenceStatusInput,
@@ -72,6 +73,21 @@ itemOccurrenceRouter.post(
       request.body.status,
     );
     response.json(toItemOccurrenceDto(row));
+  }),
+);
+
+// Materialize: find-or-create the slot's occurrence with no other change, returning
+// it. Used by the timer to get a concrete occurrence id for a still-virtual task.
+itemOccurrenceRouter.post(
+  '/materialize',
+  validateBody(materializeOccurrenceInput),
+  asyncHandler(async (request, response) => {
+    const row = await occurrenceService.ensureOccurrence(
+      request.loadedItem,
+      request.currentUser.idUser,
+      request.body.occurrenceDate,
+    );
+    response.status(201).json(toItemOccurrenceDto(row));
   }),
 );
 

@@ -13,6 +13,7 @@ export const toItemDto = ({ item, projectColor, categoryIds }: ItemWithProjectCo
   estimatedMinutes: item.estimatedMinutes,
   rrule: item.rrule,
   recurrenceStart: item.recurrenceStart?.toISOString() ?? null,
+  timezone: item.timezone,
   categoryIds,
   createdAt: item.createdAt.toISOString(),
   updatedAt: item.updatedAt.toISOString(),

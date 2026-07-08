@@ -57,6 +57,23 @@ describe('expandRecurrence', () => {
       '2026-01-15T00:00:00.000Z',
     ]);
   });
+
+  it('keeps the wall-clock across a DST change in the definition timezone', () => {
+    // Daily 09:00 America/Montreal from Mar 6 2026 (EST, -5). Spring-forward is
+    // Mar 8, so from Mar 8 the same 09:00 wall-clock is EDT (-4) — the instant
+    // shifts from 14:00Z to 13:00Z but the local time stays 09:00.
+    const definition: RecurrenceDefinition = {
+      rrule: 'FREQ=DAILY;COUNT=4',
+      recurrenceStart: new Date('2026-03-06T14:00:00.000Z'), // 09:00 Montreal (EST)
+      timezone: 'America/Montreal',
+    };
+    expect(iso(expandRecurrence(definition, utc(2026, 3, 1), utc(2026, 3, 15)))).toEqual([
+      '2026-03-06T14:00:00.000Z',
+      '2026-03-07T14:00:00.000Z',
+      '2026-03-08T13:00:00.000Z',
+      '2026-03-09T13:00:00.000Z',
+    ]);
+  });
 });
 
 describe('mergeSlots', () => {

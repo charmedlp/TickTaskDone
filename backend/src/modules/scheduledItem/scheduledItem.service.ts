@@ -27,6 +27,7 @@ export const createScheduledItem = async (
         estimatedMinutes: input.item.estimatedMinutes,
         rrule: input.item.rrule,
         recurrenceStart: input.item.recurrenceStart,
+        timezone: input.item.timezone,
         createdBy: userId,
         updatedBy: userId,
       })
@@ -53,6 +54,7 @@ export const createScheduledItem = async (
         timeEnd: input.timeBlock.timeEnd,
         allDay: input.timeBlock.allDay,
         isBlocking: input.timeBlock.isBlocking,
+        timezone: input.timeBlock.timezone,
         createdBy: userId,
         updatedBy: userId,
       });
@@ -83,6 +85,7 @@ export const createScheduledItem = async (
       dueDate: occurrence.dueDate,
       materialized: true,
       timeBlocks,
+      timeLogs: [], // a freshly created scheduled item has no real time yet
     };
   });
 };

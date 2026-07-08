@@ -1,5 +1,6 @@
 import { rrulestr } from 'rrule';
 import type { ItemOccurrence } from '../db/schema';
+import { instantToWallClock, wallClockToInstant, type WallClock } from './timezone';
 
 // =============================================================================
 //  Pure recurrence logic (no database access) — the testable heart of Phase 3.
@@ -12,9 +13,11 @@ import type { ItemOccurrence } from '../db/schema';
 // =============================================================================
 
 // The minimal shape needed to expand a recurrence — decoupled from the full row.
+// timezone is the IANA id the recurrence lives in (DST-correct); omitted/null = UTC.
 export interface RecurrenceDefinition {
   rrule: string | null;
   recurrenceStart: Date | null;
+  timezone?: string | null;
 }
 
 // A slot paired with its materialized row, if any.
@@ -23,14 +26,34 @@ export interface MergedOccurrence {
   materialized: ItemOccurrence | null; // null => virtual (implicitly `todo`)
 }
 
-// Expand a recurrent definition into the slot datetimes within [from, to]
-// (inclusive). A non-recurrent definition (both fields null) yields no slots —
-// its single occurrence has occurrenceDate = null and is handled by the caller.
+// A "floating" Date carries a wall-clock in its UTC fields (no timezone).
+const toFloating = (wall: WallClock): Date =>
+  new Date(Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, wall.second));
+const fromFloating = (floating: Date): WallClock => ({
+  year: floating.getUTCFullYear(),
+  month: floating.getUTCMonth() + 1,
+  day: floating.getUTCDate(),
+  hour: floating.getUTCHours(),
+  minute: floating.getUTCMinutes(),
+  second: floating.getUTCSeconds(),
+});
+
+// Expand a recurrent definition into the slot instants within [from, to]
+// (inclusive). Expansion runs on the wall-clock in the definition's timezone (so
+// "every day at 09:00" keeps its wall-clock across a DST change), then each slot's
+// wall-clock is converted back to an absolute instant. A non-recurrent definition
+// (both fields null) yields no slots. With no timezone this is plain UTC.
 export const expandRecurrence = (definition: RecurrenceDefinition, from: Date, to: Date): Date[] => {
   if (definition.rrule === null || definition.recurrenceStart === null) {
     return [];
   }
-  return rrulestr(definition.rrule, { dtstart: definition.recurrenceStart }).between(from, to, true);
+  const timeZone = definition.timezone ?? 'UTC';
+  const dtstart = toFloating(instantToWallClock(definition.recurrenceStart, timeZone));
+  const floatingFrom = toFloating(instantToWallClock(from, timeZone));
+  const floatingTo = toFloating(instantToWallClock(to, timeZone));
+  return rrulestr(definition.rrule, { dtstart })
+    .between(floatingFrom, floatingTo, true)
+    .map((slot) => wallClockToInstant(fromFloating(slot), timeZone));
 };
 
 // Overlay materialized occurrences onto the virtual slots: for each slot, a

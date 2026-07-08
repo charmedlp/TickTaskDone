@@ -26,6 +26,15 @@ export const setOccurrenceStatusInput = z.object({
 
 export type SetOccurrenceStatusInput = z.infer<typeof setOccurrenceStatusInput>;
 
+// Materialize a slot (find-or-create) without any other change, returning the
+// occurrence row. Used by the timer, which must attach real time logs to a concrete
+// occurrence even when the task is still a virtual recurring slot.
+export const materializeOccurrenceInput = z.object({
+  occurrenceDate: z.coerce.date().nullable(),
+});
+
+export type MaterializeOccurrenceInput = z.infer<typeof materializeOccurrenceInput>;
+
 // Move a slot to a new time: materialize the occurrence (keeping its original
 // occurrenceDate as the recurrence anchor) and place/replace its timeBlock.
 export const moveOccurrenceInput = z
@@ -35,6 +44,7 @@ export const moveOccurrenceInput = z
     timeEnd: z.coerce.date(),
     allDay: z.boolean().optional(),
     isBlocking: z.boolean().optional(),
+    timezone: z.string().max(64).nullable(),
   })
   .refine((value) => value.timeEnd > value.timeStart, {
     message: 'timeEnd must be after timeStart.',
@@ -55,6 +65,7 @@ export const scheduleOccurrenceInput = z
     allDay: z.boolean().optional(),
     isBlocking: z.boolean().optional(),
     dueDate: z.coerce.date().nullable(),
+    timezone: z.string().max(64).nullable(),
   })
   .refine((value) => value.timeEnd > value.timeStart, { message: 'timeEnd must be after timeStart.' });
 

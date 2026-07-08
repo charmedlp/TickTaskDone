@@ -11,6 +11,8 @@ const props = defineProps<{
   blocks: CalendarBlock[];
   // Live pointer of an in-progress backlog drag, for the drop placeholder.
   dropPoint?: { x: number; y: number; durationMinutes: number } | null;
+  // Actual view is read-only: no create / move (only view + menu).
+  readonly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -102,8 +104,8 @@ const backlogDropIndex = computed(() => (props.dropPoint ? cellIndexAt(props.dro
 const hoverCellIndex = ref<number | null>(null);
 
 const onCellHover = (event: PointerEvent, cellIndex: number): void => {
-  if (event.pointerType !== 'mouse' || draggingKey.value !== null || props.dropPoint) {
-    return; // a drag is in progress
+  if (props.readonly || event.pointerType !== 'mouse' || draggingKey.value !== null || props.dropPoint) {
+    return; // read-only, or a drag is in progress
   }
   if ((event.target as HTMLElement).closest('.chip')) {
     hoverCellIndex.value = null; // over a chip, not empty space
@@ -225,6 +227,10 @@ const onChipPointerDown = (event: PointerEvent, block: CalendarBlock, dayIndex: 
   if (event.button !== 0) {
     return; // let the right button reach @contextmenu
   }
+  if (props.readonly) {
+    startLongPress(event, block); // still allow the touch menu; no move
+    return;
+  }
   if (session) {
     finish(false);
   }
@@ -246,6 +252,9 @@ const onChipPointerDown = (event: PointerEvent, block: CalendarBlock, dayIndex: 
 // Click an empty cell to create — at the time implied by the click position among
 // the day's items (same rule as the drag), like the hover preview shows.
 const onCellClick = (day: Date, event: MouseEvent, cellIndex: number): void => {
+  if (props.readonly) {
+    return;
+  }
   const start = new Date(startOfDay(day).getTime() + slotStart(day, insertIndexAt(cellIndex, event.clientY)) * 60_000);
   emit('create', { start, end: new Date(start.getTime() + DEFAULT_CREATE_MINUTES * 60_000) });
 };

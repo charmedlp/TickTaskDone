@@ -14,6 +14,7 @@ export interface ItemDto {
   estimatedMinutes: number | null;
   rrule: string | null;
   recurrenceStart: string | null;
+  timezone: string | null; // IANA id for wall-clock (recurrence, dueDate)
   categoryIds: number[]; // the stored leaves; ancestors are deduced client-side
   createdAt: string;
   updatedAt: string;
