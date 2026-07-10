@@ -303,7 +303,11 @@ defineExpose({ dropAt });
               <div
                 class="chip"
                 :data-key="block.key"
-                :class="{ 'is-done': block.occurrence.status === 'done', 'is-dragging': draggingKey === block.key }"
+                :class="{
+                  'is-done': block.occurrence.status === 'done',
+                  'is-cancelled': block.occurrence.status === 'cancelled',
+                  'is-dragging': draggingKey === block.key,
+                }"
                 :style="{ backgroundColor: block.occurrence.resolvedColor }"
                 @pointerdown.stop="onChipPointerDown($event, block, weekIndex * 7 + columnIndex)"
                 @click.stop
@@ -462,6 +466,17 @@ defineExpose({ dropAt });
 
 .chip.is-done {
   opacity: 0.55;
+}
+
+.chip.is-cancelled {
+  opacity: 0.45;
+  outline: 1px dashed rgba(255, 255, 255, 0.7);
+  outline-offset: -2px;
+}
+
+.chip.is-cancelled .chip-title {
+  text-decoration: line-through;
+  font-style: italic;
 }
 
 .chip.is-dragging {

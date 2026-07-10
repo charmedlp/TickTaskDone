@@ -14,3 +14,4 @@ export class AppError extends Error {
 export const badRequest = (message: string): AppError => new AppError(400, message);
 export const notFound = (entity: string): AppError => new AppError(404, `${entity} not found.`);
 export const forbidden = (message = 'Forbidden.'): AppError => new AppError(403, message);
+export const conflict = (message: string): AppError => new AppError(409, message);

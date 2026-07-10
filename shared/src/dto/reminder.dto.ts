@@ -8,7 +8,10 @@ export interface ReminderDto {
   idItemOccurrence: number;
   itemId: number;
   title: string;
+  resolvedColor: string;
   occurrenceDate: string | null;
   dueDate: string | null;
+  effectiveDate: string; // the moment it is overdue at (its block if placed, else slot/dueDate)
   status: OccurrenceStatus;
+  isRecurrent: boolean; // rescheduling a recurrent task adds a custom occurrence; else a split
 }

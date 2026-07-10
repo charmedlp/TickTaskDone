@@ -33,7 +33,7 @@ const form = reactive({
   color: DEFAULT_COLOR,
   estimatedMinutes: null as number | null,
   dueDate: '' as string,
-  isBlocking: false,
+  isBlocking: true, // items reserve their slot (block) by default
   allDay: false,
   timeStart: '' as string,
   timeEnd: '' as string,
@@ -114,7 +114,8 @@ const projectGroups = computed(() =>
 // scheduling an existing task.
 const showPicker = computed(() => form.mode === 'create' && form.type === 'task');
 const showItemDetail = computed(() => form.mode === 'edit' || isNew.value);
-const showTimeFields = computed(() => form.mode === 'create');
+// Times are editable when creating, and when editing an item that has a placed block.
+const showTimeFields = computed(() => form.mode === 'create' || (form.mode === 'edit' && timeBlockId.value !== null));
 
 // --- Category selection & auto-color (brief §5) -----------------------------
 // The full category tree, provided by the picker, to resolve lineage color.
@@ -177,7 +178,7 @@ const blockPayload = (start: Date, end: Date) => {
     timeStart: floatingStart,
     timeEnd: floatingEnd.getTime() <= floatingStart.getTime() ? new Date(floatingStart.getTime() + 86_400_000) : floatingEnd,
     allDay: true,
-    isBlocking: form.isBlocking,
+    isBlocking: false, // all-day floats; it never blocks (use a timed midnight span to block a day)
     timezone: null as string | null,
   };
 };
@@ -188,23 +189,27 @@ const submit = (): void => {
   const timeEnd = fromDateTimeInputValue(form.timeEnd);
   const dueDate = effectiveType.value === 'task' && form.dueDate !== '' ? fromDateTimeInputValue(form.dueDate) : null;
 
-  if (form.mode === 'create' && timeEnd <= timeStart) {
+  // Ordering matters whenever timed bounds are in play (create, or editing a block).
+  if (showTimeFields.value && !form.allDay && timeEnd <= timeStart) {
     errorMessage.value = 'End must be after start.';
     return;
   }
 
-  // Edit an existing item's fields.
+  // Edit an existing item's fields (and its block bounds when it has one).
   if (form.mode === 'edit' && idItem.value !== null) {
     const recurring = form.recurrence.freq !== 'none';
+    const block = timeBlockId.value !== null ? blockPayload(timeStart, timeEnd) : null;
     emit('update', {
       idItem: idItem.value,
       item: buildItemFields(recurring, recurring ? timeStart : null),
       idItemOccurrence: idItemOccurrence.value,
       dueDate,
       timeBlockId: timeBlockId.value,
-      allDay: form.allDay,
-      isBlocking: form.isBlocking,
-      timezone: form.allDay ? null : browserTimezone(),
+      timeStart: block?.timeStart ?? null,
+      timeEnd: block?.timeEnd ?? null,
+      allDay: block?.allDay ?? form.allDay,
+      isBlocking: block ? block.isBlocking : form.allDay ? false : form.isBlocking, // all-day can't block
+      timezone: block ? block.timezone : form.allDay ? null : browserTimezone(),
     });
     return;
   }
@@ -349,7 +354,9 @@ const submit = (): void => {
 
       <div class="row">
         <label class="inline"><input v-model="form.allDay" type="checkbox" /> All day</label>
-        <label class="inline"><input v-model="form.isBlocking" type="checkbox" /> Blocking</label>
+        <!-- All-day items float (no timed slot), so they can't block. To block a whole
+             day, use a timed midnight-to-midnight event with All day unchecked. -->
+        <label v-if="!form.allDay" class="inline"><input v-model="form.isBlocking" type="checkbox" /> Blocking</label>
       </div>
 
       <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>

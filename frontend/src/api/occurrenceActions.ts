@@ -47,3 +47,6 @@ export interface MoveOccurrenceResult {
 
 export const moveOccurrence = (itemId: number, input: MoveOccurrenceInput): Promise<MoveOccurrenceResult> =>
   api.post<MoveOccurrenceResult>(`/workspaces/${workspaceId}/items/${itemId}/occurrences/move`, input);
+
+export const deleteOccurrence = (itemId: number, idItemOccurrence: number): Promise<void> =>
+  api.delete<void>(`/workspaces/${workspaceId}/items/${itemId}/occurrences/${idItemOccurrence}`);

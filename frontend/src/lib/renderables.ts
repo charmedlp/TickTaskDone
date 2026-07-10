@@ -1,4 +1,4 @@
-import type { OccurrenceViewDto } from '@ticktaskdone/shared';
+import type { OccurrenceViewDto, ReminderDto } from '@ticktaskdone/shared';
 import { addDays } from './datetime';
 
 // A single paintable block on the grid. A materialized occurrence yields one
@@ -90,6 +90,42 @@ export const toCalendarBlocks = (
     }
   }
   return blocks;
+};
+
+// An overdue reminder rendered as a list entry, placed at its effective deadline
+// (dueDate, else the slot's occurrenceDate). Used by the List view to surface all
+// past-due tasks regardless of the visible-from date. It carries no timeBlock, so it
+// behaves like a virtual-but-materialized entry for toggle/edit.
+export const reminderToCalendarBlock = (reminder: ReminderDto): CalendarBlock => {
+  const deadline = new Date(reminder.effectiveDate);
+  const occurrence: OccurrenceViewDto = {
+    itemId: reminder.itemId,
+    type: 'task',
+    title: reminder.title,
+    projectId: null,
+    resolvedColor: reminder.resolvedColor,
+    estimatedMinutes: null,
+    timezone: null,
+    isRecurrent: reminder.isRecurrent,
+    idItemOccurrence: reminder.idItemOccurrence,
+    occurrenceDate: reminder.occurrenceDate,
+    status: reminder.status,
+    dueDate: reminder.dueDate,
+    materialized: true,
+    timeBlocks: [],
+    timeLogs: [],
+  };
+  return {
+    key: `rem-${reminder.idItemOccurrence}`,
+    occurrence,
+    timeBlockId: null,
+    timeLogId: null,
+    start: deadline,
+    end: new Date(deadline.getTime() + 30 * 60_000),
+    allDay: false,
+    isBlocking: false,
+    isVirtual: false,
+  };
 };
 
 export interface DayTimedEntry {

@@ -9,6 +9,7 @@ export interface ProjectDto {
   color: string;
   income: number;
   status: ProjectStatus;
+  categoryIds: number[]; // stored leaves; ancestors are deduced client-side
   createdAt: string;
   updatedAt: string;
 }

@@ -15,7 +15,7 @@ import * as occurrenceService from '../occurrence/occurrence.service';
 import { toOccurrenceViewDto } from '../occurrence/occurrence.mapper';
 import { toTimeBlockDto } from '../timeBlock/timeBlock.mapper';
 import * as itemOccurrenceService from './itemOccurrence.service';
-import { toItemOccurrenceDto } from './itemOccurrence.mapper';
+import { toItemOccurrenceDto, toPlannedMomentDto } from './itemOccurrence.mapper';
 
 // Mounted under /workspaces/:workspaceId/items/:idItem/occurrences.
 // `loadItem` has already validated the parent item and set request.loadedItem.
@@ -27,6 +27,19 @@ itemOccurrenceRouter.get(
   asyncHandler(async (request, response) => {
     const rows = await itemOccurrenceService.listItemOccurrences(request.loadedItem.idItem);
     response.json(rows.map(toItemOccurrenceDto));
+  }),
+);
+
+// Planned moments: the task's materialized occurrences + the current user's blocks
+// (brief §3.1). Defined before '/:idItemOccurrence' so "moments" is not read as an id.
+itemOccurrenceRouter.get(
+  '/moments',
+  asyncHandler(async (request, response) => {
+    const moments = await itemOccurrenceService.listItemMoments(
+      request.loadedItem.idItem,
+      request.currentUser.idUser,
+    );
+    response.json(moments.map(toPlannedMomentDto));
   }),
 );
 

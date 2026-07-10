@@ -1,13 +1,41 @@
 import { and, eq } from 'drizzle-orm';
 import type { CreateItemOccurrenceInput, UpdateItemOccurrenceInput } from '@ticktaskdone/shared';
 import { db } from '../../db/db';
-import { itemOccurrence, type ItemOccurrence } from '../../db/schema';
+import { itemOccurrence, timeBlock, type ItemOccurrence, type TimeBlock } from '../../db/schema';
 
 // Scoped by itemId (the parent item's workspace membership is checked upstream by
 // `loadItem`). Order follows LRCUD.
 
 export const listItemOccurrences = (itemId: number): Promise<ItemOccurrence[]> =>
   db.select().from(itemOccurrence).where(eq(itemOccurrence.itemId, itemId));
+
+// A materialized occurrence with the current user's blocks on it (brief §3.1).
+export interface ItemMoment {
+  occurrence: ItemOccurrence;
+  timeBlocks: TimeBlock[];
+}
+
+// All materialized moments of a task: every occurrence row + the user's timeBlocks,
+// grouped. Virtual future slots are not included (they have no row).
+export const listItemMoments = async (itemId: number, userId: number): Promise<ItemMoment[]> => {
+  const occurrences = await db.select().from(itemOccurrence).where(eq(itemOccurrence.itemId, itemId));
+  const blockRows = await db
+    .select({ block: timeBlock })
+    .from(timeBlock)
+    .innerJoin(itemOccurrence, eq(timeBlock.itemOccurrenceId, itemOccurrence.idItemOccurrence))
+    .where(and(eq(itemOccurrence.itemId, itemId), eq(timeBlock.userId, userId)));
+
+  const blocksByOccurrence = new Map<number, TimeBlock[]>();
+  for (const { block } of blockRows) {
+    const list = blocksByOccurrence.get(block.itemOccurrenceId) ?? [];
+    list.push(block);
+    blocksByOccurrence.set(block.itemOccurrenceId, list);
+  }
+  return occurrences.map((occurrence) => ({
+    occurrence,
+    timeBlocks: blocksByOccurrence.get(occurrence.idItemOccurrence) ?? [],
+  }));
+};
 
 export const readItemOccurrence = async (itemId: number, idItemOccurrence: number): Promise<ItemOccurrence | undefined> => {
   const [row] = await db

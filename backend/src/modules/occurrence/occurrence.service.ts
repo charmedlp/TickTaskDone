@@ -1,5 +1,6 @@
-import { and, eq, gte, isNotNull, isNull, lt, lte, or } from 'drizzle-orm';
-import type { MoveOccurrenceInput, OccurrenceStatus, ScheduleOccurrenceInput } from '@ticktaskdone/shared';
+import { and, desc, eq, gte, isNotNull, isNull, lt, lte, ne, or } from 'drizzle-orm';
+import { instantToWallClock, wallClockToInstant } from '../../domain/timezone';
+import { resolveColor, type MoveOccurrenceInput, type OccurrenceStatus, type ScheduleOccurrenceInput } from '@ticktaskdone/shared';
 import { db, type Transaction } from '../../db/db';
 import {
   item,
@@ -13,6 +14,7 @@ import {
   type TimeLog,
 } from '../../db/schema';
 import { expandRecurrence, latestArrivedSlot, mergeSlots } from '../../domain/recurrence';
+import { assertNoBlockingOverlap } from '../timeBlock/timeBlock.service';
 
 // One occurrence assembled for the calendar feed: the item context, the merge
 // state (virtual vs materialized) and the current user's placements.
@@ -32,9 +34,12 @@ export interface ReminderRow {
   idItemOccurrence: number;
   itemId: number;
   title: string;
+  resolvedColor: string;
   occurrenceDate: Date | null;
   dueDate: Date | null; // null = overdue by its slot time (occurrenceDate), not a dueDate
+  effectiveDate: Date; // the actual moment it is overdue at (block, else slot/dueDate)
   status: OccurrenceStatus;
+  isRecurrent: boolean; // rescheduling recurrent -> custom occurrence; else -> a split
 }
 
 export interface MovedOccurrence {
@@ -143,6 +148,16 @@ export const moveOccurrence = (definition: Item, userId: number, input: MoveOccu
       .where(and(eq(timeBlock.itemOccurrenceId, occurrence.idItemOccurrence), eq(timeBlock.userId, userId)))
       .limit(1);
 
+    await assertNoBlockingOverlap(transaction, {
+      workspaceId: definition.workspaceId,
+      userId,
+      timeStart: input.timeStart,
+      timeEnd: input.timeEnd,
+      isBlocking: input.isBlocking ?? existing?.isBlocking ?? false,
+      allDay: input.allDay ?? existing?.allDay ?? false,
+      excludeTimeBlockId: existing?.idTimeBlock,
+    });
+
     if (existing) {
       const placement: Partial<typeof timeBlock.$inferInsert> = {
         timeStart: input.timeStart,
@@ -192,6 +207,15 @@ export const scheduleOccurrence = (
         .where(eq(itemOccurrence.idItemOccurrence, occurrence.idItemOccurrence));
     }
 
+    await assertNoBlockingOverlap(transaction, {
+      workspaceId: definition.workspaceId,
+      userId,
+      timeStart: input.timeStart,
+      timeEnd: input.timeEnd,
+      isBlocking: input.isBlocking ?? false,
+      allDay: input.allDay ?? false,
+    });
+
     await transaction.insert(timeBlock).values({
       itemOccurrenceId: occurrence.idItemOccurrence,
       userId,
@@ -237,13 +261,21 @@ export const scheduleOccurrence = (
 //  Reminder engine.
 // -----------------------------------------------------------------------------
 
-// Maintenance for each recurrent series (§11):
-//  1. Materialize the latest ARRIVED slot as `todo` (find-or-create) so an ignored
-//     recurring task still has a row and thus surfaces as an overdue reminder. Only
-//     this one slot is materialized — never the whole history — so there is no row
-//     explosion. A slot already actioned (done/cancelled) is left as-is.
-//  2. Auto-cancel superseded occurrences: any `todo` slot preceding that latest slot
-//     is cancelled — you will not do last week's instance once this week's arrived.
+const laterOf = (left: Date | null, right: Date | null): Date | null => {
+  if (left === null) return right;
+  if (right === null) return left;
+  return left.getTime() >= right.getTime() ? left : right;
+};
+
+// Maintenance for each recurrent series (§11 + reschedule supersession):
+//  1. Establish the series' current "frontier" = the later of the latest ARRIVED rule
+//     slot and the latest MATERIALIZED occurrence whose day has started (in the item's
+//     timezone). A same-day reschedule (a custom occurrence created for today, even at
+//     a later hour) therefore moves the frontier to today — the series has "reappeared".
+//  2. Materialize the latest rule slot as `todo` only when nothing later exists, so an
+//     ignored series still surfaces exactly one live overdue reminder (no row explosion).
+//  3. Auto-cancel every `todo` occurrence before the frontier — you will not do last
+//     week's instance once this week's (or a same-day reschedule) has arrived.
 export const runReminderMaintenance = async (workspaceId: number, userId: number, now: Date): Promise<void> => {
   const recurrent = await db
     .select({ item })
@@ -251,13 +283,43 @@ export const runReminderMaintenance = async (workspaceId: number, userId: number
     .where(and(eq(item.workspaceId, workspaceId), isNotNull(item.rrule)));
 
   for (const { item: definition } of recurrent) {
-    const latest = latestArrivedSlot(definition, now);
-    if (latest === null) {
+    const ruleLatest = latestArrivedSlot(definition, now);
+
+    // Start of tomorrow in the item's timezone — the cutoff for "arrived today".
+    const timeZone = definition.timezone ?? 'UTC';
+    const wall = instantToWallClock(now, timeZone);
+    const startOfTomorrow = wallClockToInstant(
+      { year: wall.year, month: wall.month, day: wall.day + 1, hour: 0, minute: 0, second: 0 },
+      timeZone,
+    );
+    const [materializedRow] = await db
+      .select({ occurrenceDate: itemOccurrence.occurrenceDate })
+      .from(itemOccurrence)
+      .where(
+        and(
+          eq(itemOccurrence.itemId, definition.idItem),
+          isNotNull(itemOccurrence.occurrenceDate),
+          lt(itemOccurrence.occurrenceDate, startOfTomorrow),
+          ne(itemOccurrence.status, 'cancelled'), // a cancelled instance never sets the frontier
+        ),
+      )
+      .orderBy(desc(itemOccurrence.occurrenceDate))
+      .limit(1);
+    const materializedLatest = materializedRow?.occurrenceDate ?? null;
+
+    const frontier = laterOf(ruleLatest, materializedLatest);
+    if (frontier === null) {
       continue;
     }
-    if (definition.type === 'task') {
-      await ensureOccurrence(definition, userId, latest);
+
+    if (
+      definition.type === 'task' &&
+      ruleLatest !== null &&
+      (materializedLatest === null || ruleLatest.getTime() >= materializedLatest.getTime())
+    ) {
+      await ensureOccurrence(definition, userId, ruleLatest);
     }
+
     await db
       .update(itemOccurrence)
       .set({ status: 'cancelled', updatedBy: userId })
@@ -265,40 +327,89 @@ export const runReminderMaintenance = async (workspaceId: number, userId: number
         and(
           eq(itemOccurrence.itemId, definition.idItem),
           eq(itemOccurrence.status, 'todo'),
-          lt(itemOccurrence.occurrenceDate, latest),
+          lt(itemOccurrence.occurrenceDate, frontier),
         ),
       );
   }
 };
 
-// Overdue reminders: TASK occurrences still `todo` whose effective deadline has
-// passed. The deadline is the explicit `dueDate` when set, otherwise the slot's
-// `occurrenceDate` (a scheduled/recurring task is due at its slot time). Events are
-// excluded — they are not "todo" work.
+// Overdue reminders: TASK occurrences still `todo` whose effective moment is in the
+// past (time-precise). The status is DYNAMIC — it tracks where the task actually sits:
+//  - Non-recurring: its fixed `dueDate`. Block placement is irrelevant; it stays
+//    overdue until marked done.
+//  - Recurring: its actual planned moment — the latest timeBlock if placed, otherwise
+//    the slot anchor.
+// A task placed later today is not overdue; dragged to an earlier (past) time — today
+// or any prior day — it is. Superseding older instances is handled in maintenance.
 export const listReminders = async (workspaceId: number, userId: number, now: Date): Promise<ReminderRow[]> => {
   await runReminderMaintenance(workspaceId, userId, now);
 
+  // Every todo task occurrence + the current user's blocks (left join -> several rows
+  // per split, collapsed below).
   const rows = await db
-    .select({ occurrence: itemOccurrence, title: item.title })
+    .select({
+      occurrence: itemOccurrence,
+      title: item.title,
+      rrule: item.rrule,
+      color: item.color,
+      projectColor: project.color,
+      blockStart: timeBlock.timeStart,
+    })
     .from(itemOccurrence)
     .innerJoin(item, eq(itemOccurrence.itemId, item.idItem))
-    .where(
-      and(
-        eq(item.workspaceId, workspaceId),
-        eq(item.type, 'task'),
-        eq(itemOccurrence.status, 'todo'),
-        or(lt(itemOccurrence.dueDate, now), and(isNull(itemOccurrence.dueDate), lt(itemOccurrence.occurrenceDate, now))),
-      ),
-    );
+    .leftJoin(project, eq(item.projectId, project.idProject))
+    .leftJoin(timeBlock, and(eq(timeBlock.itemOccurrenceId, itemOccurrence.idItemOccurrence), eq(timeBlock.userId, userId)))
+    .where(and(eq(item.workspaceId, workspaceId), eq(item.type, 'task'), eq(itemOccurrence.status, 'todo')));
 
-  return rows.map((row) => ({
-    idItemOccurrence: row.occurrence.idItemOccurrence,
-    itemId: row.occurrence.itemId,
-    title: row.title,
-    occurrenceDate: row.occurrence.occurrenceDate,
-    dueDate: row.occurrence.dueDate,
-    status: row.occurrence.status,
-  }));
+  // Collapse the occurrence × block rows to one candidate each, keeping the LATEST
+  // block start (a recurring occurrence's real planned moment).
+  interface Candidate {
+    occurrence: ItemOccurrence;
+    title: string;
+    rrule: string | null;
+    color: string | null;
+    projectColor: string | null;
+    latestBlockStart: Date | null;
+  }
+  const byOccurrence = new Map<number, Candidate>();
+  for (const row of rows) {
+    let candidate = byOccurrence.get(row.occurrence.idItemOccurrence);
+    if (!candidate) {
+      candidate = {
+        occurrence: row.occurrence,
+        title: row.title,
+        rrule: row.rrule,
+        color: row.color,
+        projectColor: row.projectColor,
+        latestBlockStart: null,
+      };
+      byOccurrence.set(row.occurrence.idItemOccurrence, candidate);
+    }
+    if (row.blockStart && (candidate.latestBlockStart === null || row.blockStart.getTime() > candidate.latestBlockStart.getTime())) {
+      candidate.latestBlockStart = row.blockStart;
+    }
+  }
+
+  const reminders: ReminderRow[] = [];
+  for (const candidate of byOccurrence.values()) {
+    const { occurrence } = candidate;
+    const effective = candidate.rrule === null ? occurrence.dueDate : candidate.latestBlockStart ?? occurrence.occurrenceDate;
+    if (effective === null || effective.getTime() >= now.getTime()) {
+      continue;
+    }
+    reminders.push({
+      idItemOccurrence: occurrence.idItemOccurrence,
+      itemId: occurrence.itemId,
+      title: candidate.title,
+      resolvedColor: resolveColor(candidate.color, candidate.projectColor),
+      occurrenceDate: occurrence.occurrenceDate,
+      dueDate: occurrence.dueDate,
+      effectiveDate: effective,
+      status: occurrence.status,
+      isRecurrent: candidate.rrule !== null,
+    });
+  }
+  return reminders;
 };
 
 // -----------------------------------------------------------------------------

@@ -8,6 +8,11 @@ import type { CalendarBlock } from '@/lib/renderables';
 // ALT-copy uniformly for mouse and touch. Snapping is applied live. While a drag
 // is active, move/up are tracked on `window` so a re-render of the dragged block
 // never drops the gesture.
+//
+// Move/copy work in ABSOLUTE time (a real delta from the grab point), not per-day
+// minutes, so a block keeps its true duration and can cross midnight, be grabbed on
+// any day of a multi-day span, and shift by exactly the pointer movement. Resize
+// moves only the grabbed edge; the opposite edge keeps the block's real value.
 
 export type DragMode = 'create' | 'move' | 'resizeStart' | 'resizeEnd';
 
@@ -34,23 +39,30 @@ export interface DragCommit {
   dayIndex: number;
   startMinutes: number;
   endMinutes: number;
+  resizeEdge?: 'start' | 'end'; // resize: which edge moved (the other is preserved)
+  startMs?: number; // move/copy: absolute new start
+  endMs?: number; // move/copy: absolute new end
 }
 
 interface Session {
   mode: DragMode;
   block: CalendarBlock | null;
   pointerId: number;
-  grabOffsetMinutes: number; // move: pointer offset within the block
-  durationMinutes: number;
-  originDayIndex: number;
-  originMinutes: number; // create: the anchor edge
   moved: boolean;
+  grabDayIndex: number; // raw pointer at grab (moved detection + create anchor)
+  grabMinutes: number;
+  // move / copy:
+  grabOffsetMs: number; // grab pointer minus the block's true start
+  durationMinutes: number; // CLAMPED per-day duration, for the ghost preview only
+  durationMs: number; // TRUE duration, for the commit
+  resolvedMs: number; // the block's new absolute start, tracked live
 }
 
 const MOVE_THRESHOLD_MINUTES = 3;
 
 export const useCalendarDrag = (options: {
   geometry: () => { rect: DOMRect | null; dayCount: number };
+  slotDate: (dayIndex: number, minutes: number) => Date; // day column + minutes -> absolute Date
   onCommit: (commit: DragCommit) => void;
 }) => {
   const draft = ref<DragDraft | null>(null);
@@ -69,6 +81,19 @@ export const useCalendarDrag = (options: {
     return { dayIndex, minutes };
   };
 
+  // Absolute ms -> the day column that contains it (index clamped to the visible
+  // range; minutes may fall outside [0, 1440) so the ghost can sit off the day edges).
+  const dateToSlot = (ms: number): { dayIndex: number; minutes: number } => {
+    const { dayCount } = options.geometry();
+    let dayIndex = 0;
+    for (let index = 0; index < dayCount; index += 1) {
+      if (options.slotDate(index, 0).getTime() <= ms) {
+        dayIndex = index;
+      }
+    }
+    return { dayIndex, minutes: (ms - options.slotDate(dayIndex, 0).getTime()) / 60_000 };
+  };
+
   const onPointerMove = (event: PointerEvent): void => {
     if (!session || event.pointerId !== session.pointerId || !draft.value) {
       return;
@@ -80,47 +105,69 @@ export const useCalendarDrag = (options: {
 
     if (session.mode === 'create') {
       const current = snapMinutes(position.minutes);
-      const start = Math.min(session.originMinutes, current);
-      const end = Math.max(session.originMinutes, current);
+      const start = Math.min(session.grabMinutes, current);
+      const end = Math.max(session.grabMinutes, current);
       draft.value = {
-        dayIndex: session.originDayIndex,
+        dayIndex: session.grabDayIndex,
         startMinutes: start,
         endMinutes: end <= start ? start + MIN_DURATION_MINUTES : end,
         isCopy: false,
         block: null,
       };
-      if (Math.abs(current - session.originMinutes) >= MOVE_THRESHOLD_MINUTES) {
+      if (Math.abs(current - session.grabMinutes) >= MOVE_THRESHOLD_MINUTES) {
         session.moved = true;
       }
       return;
     }
 
     if (session.mode === 'move') {
-      const start = snapMinutes(
-        Math.min(position.minutes - session.grabOffsetMinutes, MINUTES_PER_DAY - session.durationMinutes),
-      );
+      // Absolute new start = wherever the pointer is now, minus the grab offset. Snap
+      // it to the grid within its own day; the ghost is derived from the same value.
+      const raw = options.slotDate(position.dayIndex, position.minutes).getTime() - session.grabOffsetMs;
+      const slot = dateToSlot(raw);
+      const snapped = snapMinutes(slot.minutes);
+      session.resolvedMs = options.slotDate(slot.dayIndex, snapped).getTime();
       draft.value = {
-        dayIndex: position.dayIndex,
-        startMinutes: start,
-        endMinutes: start + session.durationMinutes,
+        dayIndex: slot.dayIndex,
+        startMinutes: snapped,
+        endMinutes: snapped + session.durationMinutes,
         isCopy: event.altKey,
         block: session.block,
       };
-    } else if (session.mode === 'resizeStart') {
-      draft.value = {
-        ...draft.value,
-        startMinutes: Math.min(snapMinutes(position.minutes), draft.value.endMinutes - MIN_DURATION_MINUTES),
-      };
-    } else {
-      draft.value = {
-        ...draft.value,
-        endMinutes: Math.max(snapMinutes(position.minutes), draft.value.startMinutes + MIN_DURATION_MINUTES),
-      };
+    } else if (session.block) {
+      // Resize: the grabbed edge follows the pointer in ABSOLUTE time (so it can be
+      // dragged into the next/previous day); the opposite edge keeps the block's real
+      // value, so a multi-day span never collapses onto the grabbed day.
+      const block = session.block;
+      const pointerMs = options.slotDate(position.dayIndex, snapMinutes(position.minutes)).getTime();
+      if (session.mode === 'resizeStart') {
+        const startMs = Math.min(pointerMs, block.end.getTime() - MIN_DURATION_MINUTES * 60_000);
+        session.resolvedMs = startMs;
+        const slot = dateToSlot(startMs);
+        draft.value = {
+          dayIndex: slot.dayIndex,
+          startMinutes: slot.minutes,
+          endMinutes: (block.end.getTime() - options.slotDate(slot.dayIndex, 0).getTime()) / 60_000,
+          isCopy: false,
+          block,
+        };
+      } else {
+        const endMs = Math.max(pointerMs, block.start.getTime() + MIN_DURATION_MINUTES * 60_000);
+        session.resolvedMs = endMs;
+        const slot = dateToSlot(endMs);
+        draft.value = {
+          dayIndex: slot.dayIndex,
+          startMinutes: (block.start.getTime() - options.slotDate(slot.dayIndex, 0).getTime()) / 60_000,
+          endMinutes: slot.minutes,
+          isCopy: false,
+          block,
+        };
+      }
     }
 
     if (
-      position.dayIndex !== session.originDayIndex ||
-      Math.abs(position.minutes - session.originMinutes) >= MOVE_THRESHOLD_MINUTES
+      position.dayIndex !== session.grabDayIndex ||
+      Math.abs(position.minutes - session.grabMinutes) >= MOVE_THRESHOLD_MINUTES
     ) {
       session.moved = true;
     }
@@ -148,13 +195,25 @@ export const useCalendarDrag = (options: {
             ? 'copy'
             : 'move'
           : 'resize';
-    options.onCommit({
+    const payload: DragCommit = {
       kind,
       block: current.block,
       dayIndex: pending.dayIndex,
       startMinutes: pending.startMinutes,
       endMinutes: pending.endMinutes,
-    });
+    };
+    if (kind === 'move' || kind === 'copy') {
+      payload.startMs = current.resolvedMs;
+      payload.endMs = current.resolvedMs + current.durationMs;
+    } else if (kind === 'resize') {
+      payload.resizeEdge = current.mode === 'resizeStart' ? 'start' : 'end';
+      if (current.mode === 'resizeStart') {
+        payload.startMs = current.resolvedMs;
+      } else {
+        payload.endMs = current.resolvedMs;
+      }
+    }
+    options.onCommit(payload);
   };
 
   const onPointerUp = (event: PointerEvent): void => {
@@ -193,11 +252,13 @@ export const useCalendarDrag = (options: {
       mode: 'create',
       block: null,
       pointerId: event.pointerId,
-      grabOffsetMinutes: 0,
-      durationMinutes: MIN_DURATION_MINUTES,
-      originDayIndex: position.dayIndex,
-      originMinutes: anchor,
       moved: false,
+      grabDayIndex: position.dayIndex,
+      grabMinutes: anchor,
+      grabOffsetMs: 0,
+      durationMinutes: MIN_DURATION_MINUTES,
+      durationMs: 0,
+      resolvedMs: 0,
     };
     draft.value = {
       dayIndex: position.dayIndex,
@@ -214,15 +275,20 @@ export const useCalendarDrag = (options: {
       finish(false); // drop any stuck session before starting a new one
     }
     const position = positionOf(event);
+    const grabDayIndex = position?.dayIndex ?? context.dayIndex;
+    const grabMinutes = position?.minutes ?? context.startMinutes;
+    const grabAbsoluteMs = options.slotDate(grabDayIndex, grabMinutes).getTime();
     session = {
       mode,
       block: context.block,
       pointerId: event.pointerId,
-      grabOffsetMinutes: position ? position.minutes - context.startMinutes : 0,
-      durationMinutes: context.endMinutes - context.startMinutes,
-      originDayIndex: context.dayIndex,
-      originMinutes: context.startMinutes,
       moved: false,
+      grabDayIndex,
+      grabMinutes,
+      grabOffsetMs: grabAbsoluteMs - context.block.start.getTime(),
+      durationMinutes: context.endMinutes - context.startMinutes,
+      durationMs: context.block.end.getTime() - context.block.start.getTime(),
+      resolvedMs: context.block.start.getTime(),
     };
     draft.value = {
       dayIndex: context.dayIndex,

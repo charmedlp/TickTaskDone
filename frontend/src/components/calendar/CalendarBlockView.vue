@@ -10,6 +10,7 @@ const props = defineProps<{
   bodyHeight: number;
   selected: boolean;
   canTime?: boolean; // show the timer affordance (planned view only)
+  overdue?: boolean; // the block's occurrence is past due and still to-do
 }>();
 
 const emit = defineEmits<{
@@ -24,6 +25,9 @@ const emit = defineEmits<{
 // A task carries a checkbox; an event does not (brief §4). Done -> checked + faded.
 const isTask = computed(() => props.block.occurrence.type === 'task');
 const isDone = computed(() => props.block.occurrence.status === 'done');
+// Cancelled (e.g. a recurring slot superseded by a reschedule): shown struck-through
+// and dimmed so it never looks like a live to-do (brief-driven fix).
+const isCancelled = computed(() => props.block.occurrence.status === 'cancelled');
 
 // Fill the available height with the title (wrapping across as many lines as fit,
 // ellipsis on the last), reserving the bottom line for the time only when there is
@@ -36,12 +40,15 @@ const fittingLines = computed(() =>
 const showTime = computed(() => fittingLines.value > 1);
 const titleLines = computed(() => (showTime.value ? fittingLines.value - 1 : 1));
 
+// The fill is exposed as a CSS variable so the stylesheet can apply it solid
+// (blocking) or translucent (non-blocking) — translucency on the FILL, not element
+// opacity, so a drag's opacity multiplies on top of it instead of overriding it.
 const style = computed(() => ({
   top: `${props.box.topFraction * props.bodyHeight}px`,
   height: `${props.box.heightFraction * props.bodyHeight}px`,
   left: `${props.box.leftFraction * 100}%`,
   width: `${props.box.widthFraction * 100}%`,
-  backgroundColor: props.block.occurrence.resolvedColor,
+  '--fill': props.block.occurrence.resolvedColor,
 }));
 
 // Only the primary button starts a move; the right button reaches @contextmenu.
@@ -55,7 +62,14 @@ const onBodyPointerDown = (event: PointerEvent): void => {
 <template>
   <div
     class="calendar-block"
-    :class="{ 'is-done': isDone, 'is-blocking': block.isBlocking, 'is-selected': selected, 'is-virtual': block.isVirtual }"
+    :class="{
+      'is-done': isDone,
+      'is-cancelled': isCancelled,
+      'is-blocking': block.isBlocking,
+      'is-selected': selected,
+      'is-virtual': block.isVirtual,
+      'is-overdue': overdue,
+    }"
     :style="style"
     @pointerdown.stop="onBodyPointerDown"
     @contextmenu.prevent.stop="emit('menu', $event)"
@@ -78,10 +92,11 @@ const onBodyPointerDown = (event: PointerEvent): void => {
       <svg v-if="isDone" viewBox="0 0 16 16" class="tick"><path d="M3 8l3.5 3.5L13 5" /></svg>
     </span>
 
+    <span v-if="overdue" class="overdue-flag" title="Overdue">⚠</span>
     <span class="title" :style="{ '--title-lines': titleLines }">{{ block.occurrence.title }}</span>
     <span v-if="showTime" class="time">{{ formatTimeRange(block.start, block.end) }}</span>
     <button
-      v-if="isTask && canTime"
+      v-if="isTask && canTime && !isCancelled"
       type="button"
       class="timer"
       title="Start timer"
@@ -114,6 +129,7 @@ const onBodyPointerDown = (event: PointerEvent): void => {
   touch-action: none; /* let the pointer layer own the gesture (no scroll hijack) */
   user-select: none; /* dragging must not select the block's text */
   -webkit-user-select: none;
+  background-color: var(--fill); /* solid; older browsers keep this even for non-blocking */
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
 }
 
@@ -121,19 +137,65 @@ const onBodyPointerDown = (event: PointerEvent): void => {
   cursor: grabbing;
 }
 
-/* A tiny inset keeps adjacent split columns visually separate. */
+/* Non-blocking items share the slot (they do not reserve it): a slightly translucent
+   FILL reads as "porous / non-exclusive time" while staying clearly a live entry
+   (unlike done/cancelled, which add a checkbox + strike). Translucency is on the fill,
+   not the element, so a drag's opacity multiplies with it. A tiny inset also keeps
+   adjacent shared columns visually separate. */
 .calendar-block:not(.is-blocking) {
   margin-right: 2px;
+  background-color: color-mix(in srgb, var(--fill) 80%, transparent);
 }
 
 .is-done {
   opacity: 0.55;
 }
 
+/* Cancelled: struck + dimmed + a dashed outline, distinct from a done (solid) block
+   and unmistakably not a live to-do. */
+.is-cancelled {
+  opacity: 0.45;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  outline: 1px dashed rgba(255, 255, 255, 0.8);
+  outline-offset: -3px;
+}
+
+.is-cancelled .title {
+  text-decoration: line-through;
+  font-style: italic;
+}
+
 .is-selected {
   box-shadow:
     inset 0 0 0 1px rgba(0, 0, 0, 0.12),
     0 0 0 2px var(--accent);
+}
+
+/* Overdue: a red ring so a still-to-do, past-due task stands out in place. */
+.is-overdue {
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.12),
+    0 0 0 2px #dc2626;
+}
+
+.is-overdue.is-selected {
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.12),
+    0 0 0 2px var(--accent),
+    0 0 0 4px #dc2626;
+}
+
+.overdue-flag {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 10px;
+  line-height: 1;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.5));
+}
+
+.is-overdue .title {
+  padding-left: 14px;
 }
 
 /* Title fills the height: it wraps across up to --title-lines lines (set from the

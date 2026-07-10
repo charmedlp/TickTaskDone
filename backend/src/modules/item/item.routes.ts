@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { createItemInput, updateItemInput } from '@ticktaskdone/shared';
+import { createItemInput, enableRecurrenceInput, updateItemInput } from '@ticktaskdone/shared';
 import { asyncHandler } from '../../middleware/errorHandler';
 import { validateBody } from '../../middleware/validate';
 import { notFound } from '../../http/errors';
 import { parseId } from '../../http/params';
 import { itemOccurrenceRouter } from '../itemOccurrence/itemOccurrence.routes';
 import * as itemService from './item.service';
+import * as recurrenceService from './recurrence.service';
+import { listTaskSummaries } from './taskSummary.service';
 import { toItemDto } from './item.mapper';
 
 // Mounted under /workspaces/:workspaceId/items — request.workspaceId is set.
@@ -31,6 +33,16 @@ itemRouter.get(
   asyncHandler(async (request, response) => {
     const rows = await itemService.listItems(request.workspaceId);
     response.json(rows.map(toItemDto));
+  }),
+);
+
+// Per-task rollups for the Projects view (§2/§4). Before '/:idItem' so "summaries"
+// is not read as an id.
+itemRouter.get(
+  '/summaries',
+  asyncHandler(async (request, response) => {
+    const summaries = await listTaskSummaries(request.workspaceId, request.currentUser.idUser);
+    response.json(summaries);
   }),
 );
 
@@ -77,6 +89,35 @@ itemRouter.delete(
     const deleted = await itemService.deleteItem(request.workspaceId, parseId(request.params.idItem, 'item id'));
     if (!deleted) throw notFound('Item');
     response.status(204).send();
+  }),
+);
+
+// Enable recurrence on a task (§3.2 A/B): blocks become the recurring occurrences.
+itemRouter.post(
+  '/:idItem/recurrence',
+  validateBody(enableRecurrenceInput),
+  asyncHandler(async (request, response) => {
+    await recurrenceService.enableRecurrence(
+      request.workspaceId,
+      request.currentUser.idUser,
+      parseId(request.params.idItem, 'item id'),
+      request.body.rrule,
+    );
+    response.status(204).send();
+  }),
+);
+
+// Remove recurrence (§3.2 C): each materialized occurrence becomes a separate task.
+// Returns the number of tasks it split into.
+itemRouter.delete(
+  '/:idItem/recurrence',
+  asyncHandler(async (request, response) => {
+    const created = await recurrenceService.removeRecurrence(
+      request.workspaceId,
+      request.currentUser.idUser,
+      parseId(request.params.idItem, 'item id'),
+    );
+    response.json({ tasks: created });
   }),
 );
 

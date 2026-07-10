@@ -44,6 +44,9 @@ export interface UpdateSubmit {
   idItemOccurrence: number | null;
   dueDate: Date | null;
   timeBlockId: number | null;
+  // New block bounds (editable in the edit form); null when there is no block.
+  timeStart: Date | null;
+  timeEnd: Date | null;
   allDay: boolean;
   isBlocking: boolean;
   timezone: string | null; // block tz (null when all-day)

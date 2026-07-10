@@ -4,7 +4,7 @@ import { layoutColumn, type LayoutBox } from '@/lib/layout';
 import type { ReminderDto } from '@ticktaskdone/shared';
 import { allDayBlocksForDay, timedBlocksForDay, type CalendarBlock } from '@/lib/renderables';
 import { formatDayHeader, formatHourLabel, formatFullDay } from '@/lib/format';
-import { MINUTES_PER_DAY, startOfDay } from '@/lib/datetime';
+import { MINUTES_PER_DAY, startOfDay, toDateTimeInputValue, fromDateTimeInputValue } from '@/lib/datetime';
 import { DEFAULT_CREATE_MINUTES, HOUR_HEIGHT, minutesToY, snapMinutes, yToMinutes } from '@/lib/grid';
 import { useCalendarDrag, type BlockContext } from '@/composables/useCalendarDrag';
 import CalendarBlockView from './CalendarBlockView.vue';
@@ -18,6 +18,8 @@ const props = defineProps<{
   readonly?: boolean;
   // Overdue todo tasks, shown as a one-row band pinned to today's column.
   reminders?: ReminderDto[];
+  // Occurrence ids that are overdue, so their blocks can be flagged in place.
+  overdueOccurrenceIds?: Set<number>;
 }>();
 
 const emit = defineEmits<{
@@ -30,6 +32,8 @@ const emit = defineEmits<{
   edit: [payload: { block: CalendarBlock }];
   timer: [payload: { block: CalendarBlock }];
   reminder: [payload: { reminder: ReminderDto }];
+  reschedule: [payload: { reminder: ReminderDto; start: Date; end: Date }];
+  reminderDragstart: [payload: { reminder: ReminderDto; event: PointerEvent }];
 }>();
 
 const hours = Array.from({ length: 24 }, (_unused, index) => index);
@@ -72,8 +76,7 @@ const hasAllDay = computed(() => dayColumns.value.some((column) => column.allDay
 // Reminders are a "now" concept, so the band is pinned to today's column and only
 // shown when today is in view. It lists the most-overdue task's title + "+N"; a click
 // reveals the full list, each entry opening its task.
-const reminderDeadline = (reminder: ReminderDto): number =>
-  new Date(reminder.dueDate ?? reminder.occurrenceDate ?? 0).getTime();
+const reminderDeadline = (reminder: ReminderDto): number => new Date(reminder.effectiveDate).getTime();
 const sortedReminders = computed(() =>
   [...(props.reminders ?? [])].sort((left, right) => reminderDeadline(left) - reminderDeadline(right)),
 );
@@ -86,35 +89,105 @@ const onReminderPick = (reminder: ReminderDto): void => {
   emit('reminder', { reminder });
 };
 
+// Inline reschedule from the overdue list: pick a resumption time, then emit it. The
+// default is the next full hour today.
+const rescheduleKey = ref<number | null>(null);
+const rescheduleStart = ref('');
+const rescheduleEnd = ref('');
+const openReschedule = (reminder: ReminderDto): void => {
+  const start = new Date();
+  start.setMinutes(0, 0, 0);
+  start.setHours(start.getHours() + 1);
+  rescheduleStart.value = toDateTimeInputValue(start);
+  rescheduleEnd.value = toDateTimeInputValue(new Date(start.getTime() + 60 * 60_000));
+  rescheduleKey.value = reminder.idItemOccurrence;
+};
+const confirmReschedule = (reminder: ReminderDto): void => {
+  const start = fromDateTimeInputValue(rescheduleStart.value);
+  const end = fromDateTimeInputValue(rescheduleEnd.value);
+  if (end <= start) {
+    return;
+  }
+  rescheduleKey.value = null;
+  overdueOpen.value = false;
+  emit('reschedule', { reminder, start, end });
+};
+
+// Whether a rendered block belongs to a currently-overdue occurrence.
+const isOverdueBlock = (block: CalendarBlock): boolean =>
+  block.occurrence.idItemOccurrence !== null && (props.overdueOccurrenceIds?.has(block.occurrence.idItemOccurrence) ?? false);
+
+// An overdue item can be dragged straight onto the grid (no Reschedule button): a
+// small pointer move promotes the press to a drag (handled by the parent); a release
+// without moving is a plain click that opens the task.
+let itemDrag: { reminder: ReminderDto; startX: number; startY: number } | null = null;
+const clearItemDrag = (): void => {
+  window.removeEventListener('pointermove', onItemPointerMove);
+  window.removeEventListener('pointerup', onItemPointerUp);
+  itemDrag = null;
+};
+const onItemPointerMove = (event: PointerEvent): void => {
+  if (!itemDrag) {
+    return;
+  }
+  if (Math.hypot(event.clientX - itemDrag.startX, event.clientY - itemDrag.startY) > 6) {
+    const reminder = itemDrag.reminder;
+    clearItemDrag();
+    overdueOpen.value = false;
+    emit('reminderDragstart', { reminder, event });
+  }
+};
+const onItemPointerUp = (): void => {
+  const drag = itemDrag;
+  clearItemDrag();
+  if (drag) {
+    onReminderPick(drag.reminder); // released in place -> a click = open the task
+  }
+};
+const onItemPointerDown = (reminder: ReminderDto, event: PointerEvent): void => {
+  if (event.button !== 0) {
+    return;
+  }
+  itemDrag = { reminder, startX: event.clientX, startY: event.clientY };
+  window.addEventListener('pointermove', onItemPointerMove);
+  window.addEventListener('pointerup', onItemPointerUp);
+};
+
 // --- Interaction wiring -----------------------------------------------------
 
 const columnsRef = ref<HTMLElement | null>(null);
 const selectedKey = ref<string | null>(null);
 
+const slotDate = (dayIndex: number, minutes: number): Date =>
+  new Date((props.days[dayIndex]?.getTime() ?? 0) + minutes * 60_000);
+
 const { draft, startCreate, startBlock } = useCalendarDrag({
   geometry: () => ({ rect: columnsRef.value?.getBoundingClientRect() ?? null, dayCount: props.days.length }),
+  slotDate,
   onCommit: (commit) => {
-    const day = props.days[commit.dayIndex];
-    if (!day) {
-      return;
-    }
-    const start = new Date(day.getTime() + commit.startMinutes * 60_000);
-    const end = new Date(day.getTime() + commit.endMinutes * 60_000);
     if (commit.kind === 'create') {
-      emit('create', { start, end });
+      emit('create', { start: slotDate(commit.dayIndex, commit.startMinutes), end: slotDate(commit.dayIndex, commit.endMinutes) });
       return;
     }
     const block = commit.block;
     if (!block) {
       return;
     }
-    if (commit.kind === 'move') {
-      emit('move', { block, start, end });
-    } else if (commit.kind === 'resize') {
-      emit('resize', { block, start, end });
-    } else {
-      emit('copy', { block, start, end });
+    if (commit.kind === 'resize') {
+      // Resize moves only the grabbed edge (absolute, may cross days); the opposite
+      // edge keeps the block's real value, so a multi-day span never collapses.
+      if (commit.resizeEdge === 'start' && commit.startMs !== undefined) {
+        emit('resize', { block, start: new Date(commit.startMs), end: block.end });
+      } else if (commit.resizeEdge === 'end' && commit.endMs !== undefined) {
+        emit('resize', { block, start: block.start, end: new Date(commit.endMs) });
+      }
+      return;
     }
+    // Move / copy carry absolute bounds (true duration preserved, can cross midnight).
+    if (commit.startMs === undefined || commit.endMs === undefined) {
+      return;
+    }
+    emit(commit.kind === 'move' ? 'move' : 'copy', { block, start: new Date(commit.startMs), end: new Date(commit.endMs) });
   },
 });
 
@@ -278,16 +351,27 @@ defineExpose({ dropAt });
             <span v-if="sortedReminders.length > 1" class="more">+{{ sortedReminders.length - 1 }}</span>
           </button>
           <div v-if="overdueOpen" class="overdue-list">
-            <button
-              v-for="reminder in sortedReminders"
-              :key="reminder.idItemOccurrence"
-              type="button"
-              class="overdue-item"
-              @click="onReminderPick(reminder)"
-            >
-              <span class="oi-title">{{ reminder.title }}</span>
-              <span class="oi-when">due {{ formatOverdueSince(reminder) }}</span>
-            </button>
+            <div v-for="reminder in sortedReminders" :key="reminder.idItemOccurrence" class="overdue-item">
+              <div class="oi-main">
+                <button
+                  type="button"
+                  class="oi-open"
+                  title="Drag onto the calendar to reschedule, or click to open"
+                  @pointerdown="onItemPointerDown(reminder, $event)"
+                >
+                  <span class="oi-title">{{ reminder.title }}</span>
+                  <span class="oi-when">due {{ formatOverdueSince(reminder) }}</span>
+                </button>
+                <button type="button" class="oi-resched" @click="openReschedule(reminder)">Reschedule</button>
+              </div>
+              <div v-if="rescheduleKey === reminder.idItemOccurrence" class="oi-editor">
+                <input v-model="rescheduleStart" type="datetime-local" />
+                <span class="arrow">→</span>
+                <input v-model="rescheduleEnd" type="datetime-local" />
+                <button type="button" class="btn-mini primary" @click="confirmReschedule(reminder)">OK</button>
+                <button type="button" class="btn-mini" @click="rescheduleKey = null">Cancel</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -340,6 +424,7 @@ defineExpose({ dropAt });
             :body-height="bodyHeight"
             :selected="selectedKey === positioned.block.key"
             :can-time="!readonly"
+            :overdue="isOverdueBlock(positioned.block)"
             @grab="onBlockGrab($event, contextFor(positioned, columnIndex))"
             @resize="onBlockResize($event, contextFor(positioned, columnIndex))"
             @menu="emit('menu', { block: positioned.block, x: $event.clientX, y: $event.clientY })"
@@ -461,11 +546,22 @@ defineExpose({ dropAt });
 }
 
 .overdue-item {
+  border-radius: 6px;
+}
+
+.oi-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.oi-open {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   font: inherit;
   text-align: left;
   padding: 6px 8px;
@@ -476,14 +572,77 @@ defineExpose({ dropAt });
   cursor: pointer;
 }
 
-.overdue-item:hover {
+.oi-open:hover {
   background: var(--border-subtle, rgba(127, 127, 127, 0.15));
 }
 
-.overdue-item .oi-when {
+.oi-open {
+  cursor: grab;
+  touch-action: none;
+}
+
+.oi-open .oi-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oi-open .oi-when {
   flex: 0 0 auto;
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.oi-resched {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.oi-editor {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  padding: 4px 8px 8px;
+}
+
+.oi-editor input[type='datetime-local'] {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  padding: 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.oi-editor .arrow {
+  color: var(--text-muted);
+}
+
+.btn-mini {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.btn-mini.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 
 .day-header {

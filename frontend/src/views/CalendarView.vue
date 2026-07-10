@@ -5,13 +5,13 @@ import type { ItemDto, ProjectDto } from '@ticktaskdone/shared';
 import { useCalendarStore, type CalendarMode } from '@/stores/calendar';
 import { browserTimezone, daysInWindow, fromDateInputValue, toDateInputValue, type CalendarViewType } from '@/lib/datetime';
 import { formatWindowTitle } from '@/lib/format';
-import { toCalendarBlocks, type CalendarBlock } from '@/lib/renderables';
+import { reminderToCalendarBlock, toCalendarBlocks, type CalendarBlock } from '@/lib/renderables';
 import { emptyRecurrence, parseRrule } from '@/lib/recurrenceModel';
 import { resolveCopyStrategy } from '@/lib/copyStrategy';
 import { listProjects } from '@/api/projects';
 import { createScheduledItem } from '@/api/scheduledItems';
 import { deleteTimeBlock, updateTimeBlock } from '@/api/timeBlocks';
-import { moveOccurrence, scheduleOccurrence, setOccurrenceStatus, updateOccurrence } from '@/api/occurrenceActions';
+import { deleteOccurrence, moveOccurrence, scheduleOccurrence, setOccurrenceStatus, updateOccurrence } from '@/api/occurrenceActions';
 import { deleteItem, fetchItem, listItems, updateItem } from '@/api/items';
 import type { BacklogTaskDto, ReminderDto } from '@ticktaskdone/shared';
 import TimeGrid from '@/components/calendar/TimeGrid.vue';
@@ -26,7 +26,16 @@ import type { FormSeed, ScheduleSubmit, UpdateSubmit } from '@/components/calend
 import type { MenuAction } from '@/components/calendar/contextMenu.types';
 
 const store = useCalendarStore();
-const { view, mode, anchor, occurrences, backlog, reminders, loading, error, window: visibleWindow } = storeToRefs(store);
+const { view, mode, anchor, occurrences, backlog, reminders, loading, error, toast, window: visibleWindow } = storeToRefs(store);
+
+// Auto-dismiss the rejected-gesture toast after a few seconds (restart on each new one).
+let toastTimer: number | undefined;
+watch(toast, (message) => {
+  window.clearTimeout(toastTimer);
+  if (message !== null) {
+    toastTimer = window.setTimeout(() => store.dismissToast(), 5000);
+  }
+});
 
 // Two-way binding for the <input type="date"> start-date picker.
 const anchorInput = computed({
@@ -53,8 +62,16 @@ const modeOptions: { id: CalendarMode; label: string }[] = [
 const gridViews: CalendarViewType[] = ['day', 'week', 'workWeek'];
 const isGridView = computed(() => gridViews.includes(view.value));
 
+// Cancelled occurrences are hidden by default (clutter); a toolbar toggle reveals
+// them (struck-through) so they can be managed or deleted.
+const showCancelled = ref(false);
 const days = computed(() => daysInWindow(visibleWindow.value));
-const blocks = computed(() => toCalendarBlocks(occurrences.value, mode.value));
+const blocks = computed(() => {
+  const visible = showCancelled.value
+    ? occurrences.value
+    : occurrences.value.filter((occurrence) => occurrence.status !== 'cancelled');
+  return toCalendarBlocks(visible, mode.value);
+});
 // Actual view renders real time logs, which only the timer (M4c) may write, so the
 // calendar is read-only there: no create / move / resize / copy / backlog-drop.
 const readonly = computed(() => mode.value === 'actual');
@@ -94,58 +111,72 @@ const menu = ref<{ open: boolean; x: number; y: number; block: CalendarBlock | n
   block: null,
 });
 
-// --- Backlog drag-to-schedule -----------------------------------------------
+// --- Drag-to-schedule (backlog tasks OR overdue reminders) ------------------
+// Both are dragged onto a grid to schedule a moment. A backlog task schedules a
+// fresh block; an overdue reminder reschedules (recurrent -> custom occurrence,
+// non-recurrent -> split) exactly like the Reschedule action, without a button.
+type DragItem = { kind: 'backlog'; task: BacklogTaskDto } | { kind: 'reminder'; reminder: ReminderDto };
+
 const timeGridRef = ref<InstanceType<typeof TimeGrid> | null>(null);
 const monthGridRef = ref<InstanceType<typeof MonthGrid> | null>(null);
-const backlogDrag = ref<{ task: BacklogTaskDto; x: number; y: number } | null>(null);
+const drag = ref<{ item: DragItem; x: number; y: number } | null>(null);
 
-const onBacklogMove = (event: PointerEvent): void => {
-  if (backlogDrag.value) {
-    backlogDrag.value = { ...backlogDrag.value, x: event.clientX, y: event.clientY };
+const dragDurationMinutes = (item: DragItem): number =>
+  item.kind === 'backlog' ? item.task.estimatedMinutes ?? 60 : 60;
+const dragLabel = (item: DragItem): string => (item.kind === 'backlog' ? item.task.title : item.reminder.title);
+
+const onDragMove = (event: PointerEvent): void => {
+  if (drag.value) {
+    drag.value = { ...drag.value, x: event.clientX, y: event.clientY };
   }
 };
-const onBacklogUp = (event: PointerEvent): void => {
-  const drag = backlogDrag.value;
-  window.removeEventListener('pointermove', onBacklogMove);
-  window.removeEventListener('pointerup', onBacklogUp);
-  backlogDrag.value = null;
-  if (!drag) {
+const onDragUp = (event: PointerEvent): void => {
+  const current = drag.value;
+  window.removeEventListener('pointermove', onDragMove);
+  window.removeEventListener('pointerup', onDragUp);
+  drag.value = null;
+  if (!current) {
     return;
   }
   // Drop onto whichever grid is mounted (Day/Week/WorkWeek or Month); List has none.
-  const drop = (timeGridRef.value ?? monthGridRef.value)?.dropAt(
-    event.clientX,
-    event.clientY,
-    drag.task.estimatedMinutes ?? 60,
-  );
-  if (drop) {
+  const drop = (timeGridRef.value ?? monthGridRef.value)?.dropAt(event.clientX, event.clientY, dragDurationMinutes(current.item));
+  if (!drop) {
+    return;
+  }
+  const placement = {
+    timeStart: drop.start,
+    timeEnd: drop.end,
+    allDay: false,
+    isBlocking: true,
+    dueDate: null,
+    timezone: browserTimezone(),
+  };
+  if (current.item.kind === 'backlog') {
+    const task = current.item.task;
+    store.apply(() => scheduleOccurrence(task.itemId, { occurrenceDate: null, ...placement }));
+  } else {
+    const reminder = current.item.reminder;
     store.apply(() =>
-      scheduleOccurrence(drag.task.itemId, {
-        occurrenceDate: null,
-        timeStart: drop.start,
-        timeEnd: drop.end,
-        allDay: false,
-        isBlocking: false,
-        dueDate: null,
-        timezone: browserTimezone(),
-      }),
+      scheduleOccurrence(reminder.itemId, { occurrenceDate: reminder.isRecurrent ? drop.start : null, ...placement }),
     );
   }
 };
-const onBacklogDragStart = (payload: { task: BacklogTaskDto; event: PointerEvent }): void => {
+const startDrag = (item: DragItem, event: PointerEvent): void => {
   if (readonly.value) {
     return; // scheduling is a planned-view action; Actual is read-only
   }
-  backlogDrag.value = { task: payload.task, x: payload.event.clientX, y: payload.event.clientY };
-  window.addEventListener('pointermove', onBacklogMove);
-  window.addEventListener('pointerup', onBacklogUp);
+  drag.value = { item, x: event.clientX, y: event.clientY };
+  window.addEventListener('pointermove', onDragMove);
+  window.addEventListener('pointerup', onDragUp);
 };
+const onBacklogDragStart = (payload: { task: BacklogTaskDto; event: PointerEvent }): void =>
+  startDrag({ kind: 'backlog', task: payload.task }, payload.event);
+const onReminderDragStart = (payload: { reminder: ReminderDto; event: PointerEvent }): void =>
+  startDrag({ kind: 'reminder', reminder: payload.reminder }, payload.event);
 
 // The live drop point handed to the active grid, which draws the dashed preview.
 const dropPoint = computed(() =>
-  backlogDrag.value
-    ? { x: backlogDrag.value.x, y: backlogDrag.value.y, durationMinutes: backlogDrag.value.task.estimatedMinutes ?? 60 }
-    : null,
+  drag.value ? { x: drag.value.x, y: drag.value.y, durationMinutes: dragDurationMinutes(drag.value.item) } : null,
 );
 
 const refreshItems = async (): Promise<void> => {
@@ -256,7 +287,7 @@ const openCreate = (start: Date, end: Date): void => {
     color: null,
     estimatedMinutes: null,
     dueDate: null,
-    isBlocking: false,
+    isBlocking: true,
     allDay: false,
     recurrence: emptyRecurrence(),
     categoryIds: [],
@@ -309,6 +340,31 @@ const openEdit = async (block: CalendarBlock): Promise<void> => {
   };
 };
 
+// Occurrences currently overdue, so the calendar can flag their timeBlocks in place.
+const overdueOccurrenceIds = computed(() => new Set(reminders.value.map((reminder) => reminder.idItemOccurrence)));
+// Overdue tasks as List entries, placed at their due date (the List surfaces all
+// past-due tasks, not just entries from the anchor day forward).
+const overdueListBlocks = computed(() => reminders.value.map(reminderToCalendarBlock));
+
+// Reschedule an overdue task from the overdue list: add a resumption moment WITHOUT
+// touching the original block. Recurrent -> a new custom occurrence (a same-day one
+// supersedes the overdue instance server-side); non-recurrent -> a split on the same
+// occurrence (stays overdue until marked done).
+const onReminderReschedule = (payload: { reminder: ReminderDto; start: Date; end: Date }): void => {
+  const { reminder, start, end } = payload;
+  store.apply(() =>
+    scheduleOccurrence(reminder.itemId, {
+      occurrenceDate: reminder.isRecurrent ? start : null,
+      timeStart: start,
+      timeEnd: end,
+      allDay: false,
+      isBlocking: true,
+      dueDate: null,
+      timezone: browserTimezone(),
+    }),
+  );
+};
+
 // Open an overdue reminder's task for editing. It may have no timeBlock, so we anchor
 // the (unused-in-edit) time fields to its effective deadline.
 const onReminder = async (payload: { reminder: ReminderDto }): Promise<void> => {
@@ -334,7 +390,7 @@ const onReminder = async (payload: { reminder: ReminderDto }): Promise<void> => 
     color: item.color,
     estimatedMinutes: item.estimatedMinutes,
     dueDate: reminder.dueDate ? new Date(reminder.dueDate) : null,
-    isBlocking: false,
+    isBlocking: true,
     allDay: false,
     recurrence: parseRrule(item.rrule),
     categoryIds: item.categoryIds,
@@ -355,14 +411,22 @@ const menuActions = computed<MenuAction[]>(() => {
   }
   if (occurrence.type === 'task') {
     actions.push(occurrence.status === 'done' ? { id: 'reopen', label: 'Mark as to-do' } : { id: 'done', label: 'Mark as done' });
-    if (occurrence.status !== 'cancelled') {
+    // Skip keeps the row (marks cancelled) — only for non-recurring; a recurring
+    // instance is skipped through "Delete occurrence" below (they are equivalent).
+    if (occurrence.status !== 'cancelled' && !occurrence.isRecurrent) {
       actions.push({ id: 'skip', label: 'Skip (cancel)' });
     }
   }
   if (block.timeBlockId !== null) {
     actions.push({ id: 'unschedule', label: 'Unschedule' });
   }
-  actions.push({ id: 'delete', label: 'Delete item', danger: true });
+  // Deleting THIS occurrence is the primary destructive action; wiping the whole item
+  // (all occurrences + recurrence) is separate and confirmed. A recurring instance
+  // that is already cancelled is left alone (re-deleting it would just be regenerated).
+  if (occurrence.idItemOccurrence !== null && !(occurrence.isRecurrent && occurrence.status === 'cancelled')) {
+    actions.push({ id: 'delete-occurrence', label: 'Delete occurrence', danger: true });
+  }
+  actions.push({ id: 'delete-item', label: 'Delete item…', danger: true });
   return actions;
 });
 
@@ -396,8 +460,24 @@ const onMenuSelect = (id: string): void => {
         store.apply(() => deleteTimeBlock(idTimeBlock));
       }
       break;
-    case 'delete':
-      store.apply(() => deleteItem(block.occurrence.itemId));
+    case 'delete-occurrence': {
+      const idItemOccurrence = block.occurrence.idItemOccurrence;
+      if (idItemOccurrence === null) {
+        break;
+      }
+      if (block.occurrence.isRecurrent) {
+        // The rule would just regenerate a hard-deleted instance; skipping it (cancel)
+        // sticks and hides under the cancelled toggle.
+        store.apply(() => setStatus(block, 'cancelled'));
+      } else {
+        store.apply(() => deleteOccurrence(block.occurrence.itemId, idItemOccurrence));
+      }
+      break;
+    }
+    case 'delete-item':
+      if (window.confirm('Delete the ENTIRE item — every occurrence and its recurrence? This cannot be undone.')) {
+        store.apply(() => deleteItem(block.occurrence.itemId));
+      }
       break;
   }
 };
@@ -436,6 +516,8 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
     }
     if (payload.timeBlockId !== null) {
       await updateTimeBlock(payload.timeBlockId, {
+        ...(payload.timeStart !== null ? { timeStart: payload.timeStart } : {}),
+        ...(payload.timeEnd !== null ? { timeEnd: payload.timeEnd } : {}),
         allDay: payload.allDay,
         isBlocking: payload.isBlocking,
         timezone: payload.timezone,
@@ -460,6 +542,11 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
       <input v-model="anchorInput" type="date" class="date-input" aria-label="Go to date" />
 
       <div class="spacer" />
+
+      <label class="cancelled-toggle" title="Show cancelled occurrences">
+        <input v-model="showCancelled" type="checkbox" />
+        Cancelled
+      </label>
 
       <div class="segmented mode">
         <button
@@ -498,6 +585,7 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
           :drop-point="dropPoint"
           :readonly="readonly"
           :reminders="reminders"
+          :overdue-occurrence-ids="overdueOccurrenceIds"
           @create="onCreate"
           @move="onMove"
           @resize="onResize"
@@ -507,6 +595,8 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
           @edit="(payload) => openEdit(payload.block)"
           @timer="onTimer"
           @reminder="onReminder"
+          @reschedule="onReminderReschedule"
+          @reminder-dragstart="onReminderDragStart"
         />
         <MonthGrid
           v-else-if="view === 'month'"
@@ -525,6 +615,8 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
           v-else
           :days="days"
           :blocks="blocks"
+          :overdue-blocks="overdueListBlocks"
+          :overdue-occurrence-ids="overdueOccurrenceIds"
           @menu="onMenu"
           @toggle="onToggle"
           @edit="(payload) => openEdit(payload.block)"
@@ -568,13 +660,18 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
       @close="onTimerClose(session.key)"
     />
 
-    <div
-      v-if="backlogDrag"
-      class="drag-ghost"
-      :style="{ left: `${backlogDrag.x + 12}px`, top: `${backlogDrag.y + 12}px` }"
-    >
-      {{ backlogDrag.task.title }}
+    <div v-if="drag" class="drag-ghost" :style="{ left: `${drag.x + 12}px`, top: `${drag.y + 12}px` }">
+      {{ dragLabel(drag.item) }}
     </div>
+
+    <!-- Transient bottom banner for a refused gesture (e.g. a blocking overlap). -->
+    <Transition name="toast">
+      <div v-if="toast" class="toast-banner" role="alert" @click="store.dismissToast()">
+        <span class="toast-icon" aria-hidden="true">⚠</span>
+        <span class="toast-text">{{ toast }}</span>
+        <button type="button" class="toast-close" aria-label="Dismiss">×</button>
+      </div>
+    </Transition>
   </section>
 </template>
 
@@ -585,6 +682,61 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
   height: 100%;
   min-height: 0;
   gap: 10px;
+}
+
+/* Refused-gesture toast: fixed at the bottom-center, unmistakably red. */
+.toast-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(560px, 92vw);
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: #dc2626;
+  color: #fff;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.toast-icon {
+  flex: 0 0 auto;
+  font-size: 16px;
+}
+
+.toast-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.toast-close {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(12px);
 }
 
 .toolbar {
@@ -602,6 +754,15 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
 
 .spacer {
   flex: 1;
+}
+
+.cancelled-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .nav-group {

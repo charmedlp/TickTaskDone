@@ -10,6 +10,7 @@ export const createProjectInput = z.object({
   color: z.string().min(1).max(30),
   income: z.number().nonnegative().optional(),
   status: z.enum(projectStatuses).optional(),
+  categoryIds: z.array(z.number().int().positive()).optional(), // stored leaves (brief §2)
 });
 
 export type CreateProjectInput = z.infer<typeof createProjectInput>;

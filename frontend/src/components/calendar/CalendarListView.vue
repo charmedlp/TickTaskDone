@@ -4,7 +4,14 @@ import { startOfDay } from '@/lib/datetime';
 import { displayStart, type CalendarBlock } from '@/lib/renderables';
 import { formatFullDay, formatTime } from '@/lib/format';
 
-const props = defineProps<{ days: Date[]; blocks: CalendarBlock[] }>();
+const props = defineProps<{
+  days: Date[];
+  blocks: CalendarBlock[];
+  // Overdue tasks as entries at their due date — always shown, even before the anchor.
+  overdueBlocks?: CalendarBlock[];
+  // Occurrence ids that are overdue, to flag their rows.
+  overdueOccurrenceIds?: Set<number>;
+}>();
 
 const emit = defineEmits<{
   menu: [payload: { block: CalendarBlock; x: number; y: number }];
@@ -19,14 +26,18 @@ const page = ref(0);
 // The anchor day: everything from here forward (the store fetches a year horizon).
 const fromDay = computed(() => props.days[0] ?? startOfDay(new Date()));
 
-// All scheduled entries from the anchor day onward, chronological (all-day sorts
-// first within a day since its start is 00:00). One entry per timeBlock, so a split
-// task appears several times.
+// Overdue tasks (placed at their due date) are ALWAYS shown, then the scheduled
+// entries from the anchor day onward. Everything is sorted chronologically, so the
+// overdue ones (past dates) lead. One entry per timeBlock, so a split appears twice.
 const allEntries = computed(() =>
-  props.blocks
-    .filter((block) => displayStart(block).getTime() >= fromDay.value.getTime())
-    .sort((left, right) => displayStart(left).getTime() - displayStart(right).getTime()),
+  [
+    ...(props.overdueBlocks ?? []),
+    ...props.blocks.filter((block) => displayStart(block).getTime() >= fromDay.value.getTime()),
+  ].sort((left, right) => displayStart(left).getTime() - displayStart(right).getTime()),
 );
+
+const isOverdue = (block: CalendarBlock): boolean =>
+  block.occurrence.idItemOccurrence !== null && (props.overdueOccurrenceIds?.has(block.occurrence.idItemOccurrence) ?? false);
 
 const total = computed(() => allEntries.value.length);
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
@@ -112,12 +123,17 @@ const startLongPress = (event: PointerEvent, block: CalendarBlock): void => {
             v-for="block in group.entries"
             :key="block.key"
             class="entry"
-            :class="{ 'is-done': block.occurrence.status === 'done' }"
+            :class="{
+              'is-done': block.occurrence.status === 'done',
+              'is-cancelled': block.occurrence.status === 'cancelled',
+              'is-overdue': isOverdue(block),
+            }"
             :style="{ backgroundColor: block.occurrence.resolvedColor }"
             @click="emit('edit', { block })"
             @pointerdown="startLongPress($event, block)"
             @contextmenu.prevent="emit('menu', { block, x: $event.clientX, y: $event.clientY })"
           >
+            <span v-if="isOverdue(block)" class="overdue-flag" title="Overdue">⚠</span>
             <span class="time">{{ block.allDay ? 'All day' : formatTime(block.start) }}</span>
             <span
               v-if="block.occurrence.type === 'task'"
@@ -252,8 +268,31 @@ ul {
   opacity: 0.55;
 }
 
+.entry.is-overdue {
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.12),
+    inset 4px 0 0 #dc2626;
+}
+
+.overdue-flag {
+  flex: 0 0 auto;
+  font-size: 12px;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.5));
+}
+
 .entry.is-done .title {
   text-decoration: line-through;
+}
+
+.entry.is-cancelled {
+  opacity: 0.45;
+  outline: 1px dashed rgba(255, 255, 255, 0.7);
+  outline-offset: -3px;
+}
+
+.entry.is-cancelled .title {
+  text-decoration: line-through;
+  font-style: italic;
 }
 
 .time {

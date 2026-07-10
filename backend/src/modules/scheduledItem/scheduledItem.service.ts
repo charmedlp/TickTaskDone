@@ -3,6 +3,7 @@ import type { CreateScheduledItemInput } from '@ticktaskdone/shared';
 import { db } from '../../db/db';
 import { item, itemOccurrence, project, timeBlock, type TimeBlock } from '../../db/schema';
 import { assertCategoriesInWorkspace, replaceItemCategories } from '../itemCategory/itemCategory.service';
+import { assertNoBlockingOverlap } from '../timeBlock/timeBlock.service';
 import type { OccurrenceView } from '../occurrence/occurrence.service';
 
 // Creates an item, its first occurrence, and optionally one timeBlock, atomically.
@@ -47,6 +48,14 @@ export const createScheduledItem = async (
       .$returningId();
 
     if (input.timeBlock) {
+      await assertNoBlockingOverlap(transaction, {
+        workspaceId,
+        userId,
+        timeStart: input.timeBlock.timeStart,
+        timeEnd: input.timeBlock.timeEnd,
+        isBlocking: input.timeBlock.isBlocking ?? false,
+        allDay: input.timeBlock.allDay ?? false,
+      });
       await transaction.insert(timeBlock).values({
         itemOccurrenceId: idItemOccurrence,
         userId,

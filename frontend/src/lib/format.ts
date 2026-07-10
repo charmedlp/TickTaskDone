@@ -31,6 +31,11 @@ const timeFormatter = new Intl.DateTimeFormat('en-CA', {
   hour12: false,
 });
 
+const monthDayFormatter = new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric' });
+
+const sameLocalDay = (a: Date, b: Date): boolean =>
+  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
 export const formatDayHeader = (day: Date): string => dayHeaderFormatter.format(day);
 
 export const formatFullDay = (day: Date): string => dayTitleFormatter.format(day);
@@ -39,7 +44,12 @@ export const formatHourLabel = (hour: number): string => `${String(hour).padStar
 
 export const formatTime = (date: Date): string => timeFormatter.format(date);
 
-export const formatTimeRange = (start: Date, end: Date): string => `${formatTime(start)}–${formatTime(end)}`;
+// Same day -> just the times ("16:00–17:00"); a multi-day span carries each date so
+// the label stays meaningful ("Jul 8 16:00 – Jul 10 13:00").
+export const formatTimeRange = (start: Date, end: Date): string =>
+  sameLocalDay(start, end)
+    ? `${formatTime(start)}–${formatTime(end)}`
+    : `${monthDayFormatter.format(start)} ${formatTime(start)} – ${monthDayFormatter.format(end)} ${formatTime(end)}`;
 
 // Header title describing the current window.
 export const formatWindowTitle = (view: CalendarViewType, window: DateWindow): string => {

@@ -21,7 +21,8 @@ export const useCalendarStore = defineStore('calendar', () => {
   const backlog = ref<BacklogTaskDto[]>([]);
   const reminders = ref<ReminderDto[]>([]);
   const loading = ref(false);
-  const error = ref<string | null>(null);
+  const error = ref<string | null>(null); // persistent (load failures) — top banner
+  const toast = ref<string | null>(null); // transient (a rejected gesture) — bottom banner
 
   const window = computed(() => windowForView(view.value, anchor.value, weekStartsOn.value));
 
@@ -87,15 +88,22 @@ export const useCalendarStore = defineStore('calendar', () => {
   // Runs a mutation then refreshes the window. Centralizes error handling so every
   // interaction path reports failures the same way. Returns the operation result.
   const apply = async <T>(operation: () => Promise<T>): Promise<T | undefined> => {
-    error.value = null;
     try {
       const result = await operation();
       await Promise.all([load(true), loadBacklog()]); // silent reconcile of feed + backlog (load also refreshes reminders)
       return result;
     } catch (cause) {
-      error.value = cause instanceof ApiError ? cause.message : 'Action failed.';
+      // A rejected gesture (e.g. a move rejected as a blocking overlap) surfaces as a
+      // transient bottom toast; then reconcile so the optimistic change reverts to the
+      // server truth instead of lingering on screen.
+      toast.value = cause instanceof ApiError ? cause.message : 'Action refused.';
+      await Promise.all([load(true), loadBacklog()]);
       return undefined;
     }
+  };
+
+  const dismissToast = (): void => {
+    toast.value = null;
   };
 
   return {
@@ -110,6 +118,8 @@ export const useCalendarStore = defineStore('calendar', () => {
     reminders,
     loading,
     error,
+    toast,
+    dismissToast,
     window,
     load,
     loadBacklog,
