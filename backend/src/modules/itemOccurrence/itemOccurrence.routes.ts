@@ -30,16 +30,29 @@ itemOccurrenceRouter.get(
   }),
 );
 
-// Planned moments: the task's materialized occurrences + the current user's blocks
-// (brief §3.1). Defined before '/:idItemOccurrence' so "moments" is not read as an id.
+// Planned moments (brief §3.1): one cursor-paginated window of the task's occurrences.
+// `?direction=start|next|prev&cursor=<ISO>` — a recurrent series is potentially
+// infinite, so there is no offset/total. Defined before '/:idItemOccurrence' so
+// "moments" is not read as an id.
 itemOccurrenceRouter.get(
   '/moments',
   asyncHandler(async (request, response) => {
-    const moments = await itemOccurrenceService.listItemMoments(
-      request.loadedItem.idItem,
-      request.currentUser.idUser,
-    );
-    response.json(moments.map(toPlannedMomentDto));
+    const rawDirection = request.query.direction;
+    const direction =
+      rawDirection === 'next' || rawDirection === 'prev' || rawDirection === 'upcoming' ? rawDirection : 'start';
+    const rawCursor = typeof request.query.cursor === 'string' ? new Date(request.query.cursor) : null;
+    const cursor = rawCursor !== null && !Number.isNaN(rawCursor.getTime()) ? rawCursor : null;
+
+    const page = await itemOccurrenceService.listItemMoments(request.loadedItem, request.currentUser.idUser, {
+      direction,
+      cursor,
+    });
+    response.json({
+      moments: page.moments.map(toPlannedMomentDto),
+      hasPrev: page.hasPrev,
+      hasNext: page.hasNext,
+      canJumpToUpcoming: page.canJumpToUpcoming,
+    });
   }),
 );
 

@@ -6,7 +6,7 @@ export interface ProjectDto {
   workspaceId: number;
   parentProjectId: number | null;
   name: string;
-  color: string;
+  color: string | null; // null = inherits from the nearest colored ancestor (§7)
   income: number;
   status: ProjectStatus;
   categoryIds: number[]; // stored leaves; ancestors are deduced client-side

@@ -12,6 +12,7 @@ import { timeLogRouter } from './modules/timeLog/timeLog.routes';
 import { occurrenceRouter, reminderRouter } from './modules/occurrence/occurrence.routes';
 import { scheduledItemRouter } from './modules/scheduledItem/scheduledItem.routes';
 import { backlogRouter } from './modules/backlog/backlog.routes';
+import { userRouter } from './modules/user/user.routes';
 
 const app = express();
 app.use(cors()); // dev : laisse le frontend Vite ET l'app Capacitor appeler l'API
@@ -34,6 +35,9 @@ workspaceRouter.use('/occurrences', occurrenceRouter);
 workspaceRouter.use('/reminders', reminderRouter);
 workspaceRouter.use('/backlog', backlogRouter);
 app.use('/workspaces/:workspaceId', currentUser, scopeWorkspace, workspaceRouter);
+
+// The current user (identity-scoped, not workspace-scoped): read/patch preferences.
+app.use('/me', currentUser, userRouter);
 
 // Unmatched routes and centralized error handling — must come last.
 app.use(notFoundHandler);

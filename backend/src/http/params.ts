@@ -4,7 +4,7 @@ import { AppError } from './errors';
 export const parseId = (raw: string, label: string): number => {
   const id = Number(raw);
   if (!Number.isInteger(id) || id <= 0) {
-    throw new AppError(400, `Invalid ${label}.`);
+    throw new AppError(400, 'INVALID_PARAM', { param: label });
   }
   return id;
 };

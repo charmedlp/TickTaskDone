@@ -1,13 +1,14 @@
 import { apiBaseUrl } from '@/config';
 
-// Minimal typed fetch wrapper. Errors surface as ApiError with the backend's
-// message (which is already sanitized server-side).
+// Minimal typed fetch wrapper. Errors surface as ApiError carrying the backend's STABLE
+// error CODE (+ any details); the frontend translates it (see lib/errorMessage).
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
-    message: string,
+    public readonly code: string,
+    public readonly details?: unknown,
   ) {
-    super(message);
+    super(code);
     this.name = 'ApiError';
   }
 }
@@ -20,11 +21,11 @@ const request = async <T>(method: string, path: string, body?: unknown): Promise
   });
 
   if (!response.ok) {
-    const message = await response
+    const payload = await response
       .json()
-      .then((payload: { error?: string }) => payload.error ?? response.statusText)
-      .catch(() => response.statusText);
-    throw new ApiError(response.status, message);
+      .then((body: { error?: string; details?: unknown }) => body)
+      .catch(() => ({}) as { error?: string; details?: unknown });
+    throw new ApiError(response.status, payload.error ?? 'INTERNAL_ERROR', payload.details);
   }
 
   if (response.status === 204) {

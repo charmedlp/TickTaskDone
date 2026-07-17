@@ -4,6 +4,9 @@
 // Pure helpers
 export * from './color/color';
 
+// Error codes (backend -> frontend contract)
+export * from './errors/errorCodes';
+
 // Validation schemas (single source of truth, reused by the backend middleware)
 export * from './validation/category.validation';
 export * from './validation/project.validation';
@@ -15,6 +18,7 @@ export * from './validation/occurrence.validation';
 export * from './validation/scheduledItem.validation';
 export * from './validation/itemCategory.validation';
 export * from './validation/recurrence.validation';
+export * from './validation/user.validation';
 
 // DTO contracts
 export * from './dto/category.dto';
@@ -28,3 +32,4 @@ export * from './dto/occurrenceView.dto';
 export * from './dto/reminder.dto';
 export * from './dto/backlog.dto';
 export * from './dto/taskSummary.dto';
+export * from './dto/user.dto';

@@ -4,6 +4,9 @@ import { browserTimezone } from '@/lib/datetime';
 import { createTimeLog, deleteTimeLog, updateTimeLog } from '@/api/timelogs';
 import { materializeOccurrence } from '@/api/occurrenceActions';
 import type { TimerSession } from './timer.types';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 
 const props = defineProps<{ session: TimerSession | null; index?: number }>();
 const emit = defineEmits<{ close: [] }>();
@@ -145,7 +148,7 @@ const guard = async (action: () => Promise<void>): Promise<void> => {
   try {
     await action();
   } catch {
-    error.value = 'Something went wrong. Your captured segments are safe on the server.';
+    error.value = t('timer.errorGeneric');
   } finally {
     busy.value = false;
   }
@@ -174,7 +177,7 @@ const submitManual = (): Promise<void> =>
   guard(async () => {
     const minutes = manualMinutes.value;
     if (minutes === null || !Number.isFinite(minutes) || minutes <= 0) {
-      error.value = 'Enter a positive number of minutes.';
+      error.value = t('timer.invalidMinutes');
       return;
     }
     if (occurrenceId.value === null) {
@@ -255,18 +258,18 @@ watch(
     class="timer-widget"
     :style="cardStyle"
     role="dialog"
-    aria-label="Task timer"
+    :aria-label="t('timer.title')"
   >
     <div class="timer-card">
       <header class="timer-head" @pointerdown="startDrag">
         <div class="labels">
-          <span class="eyebrow">⠿ Timing</span>
+          <span class="eyebrow">⠿ {{ t('timer.eyebrow') }}</span>
           <h3 class="task-title">{{ session.title }}</h3>
         </div>
         <button
           type="button"
           class="icon-close"
-          aria-label="Close"
+          :aria-label="t('common.close')"
           :disabled="busy"
           @pointerdown.stop
           @click="requestClose"
@@ -279,14 +282,14 @@ watch(
 
       <!-- Timing controls -->
       <div v-if="phase === 'timing'" class="controls">
-        <button v-if="running" type="button" class="btn" :disabled="busy" @click="pause">Pause</button>
-        <button v-else type="button" class="btn" :disabled="busy" @click="resume">Resume</button>
-        <button type="button" class="btn primary" :disabled="busy" @click="stop">Stop</button>
+        <button v-if="running" type="button" class="btn" :disabled="busy" @click="pause">{{ t('timer.pause') }}</button>
+        <button v-else type="button" class="btn" :disabled="busy" @click="resume">{{ t('timer.resume') }}</button>
+        <button type="button" class="btn primary" :disabled="busy" @click="stop">{{ t('timer.stop') }}</button>
       </div>
 
       <!-- Stop report -->
       <div v-else class="report">
-        <h4 class="report-title">{{ segments.length }} segment{{ segments.length > 1 ? 's' : '' }} captured</h4>
+        <h4 class="report-title">{{ t('timer.segmentsCaptured', { count: segments.length }) }}</h4>
         <ul class="segments">
           <li v-for="(segment, index) in segments" :key="segment.idTimeLog">
             <span class="seg-index">#{{ index + 1 }}</span>
@@ -296,19 +299,19 @@ watch(
         </ul>
 
         <div v-if="!manualOpen" class="controls">
-          <button type="button" class="btn ghost" :disabled="busy" @click="manualOpen = true">Manual entry…</button>
-          <button type="button" class="btn primary" :disabled="busy" @click="validateKeep">Validate</button>
+          <button type="button" class="btn ghost" :disabled="busy" @click="manualOpen = true">{{ t('timer.manualEntry') }}</button>
+          <button type="button" class="btn primary" :disabled="busy" @click="validateKeep">{{ t('timer.validate') }}</button>
         </div>
 
         <div v-else class="manual">
-          <p class="warn">⚠ Entering a manual time will erase your timed segments.</p>
+          <p class="warn">⚠ {{ t('timer.manualWarn') }}</p>
           <label class="manual-field">
-            <span>Minutes</span>
+            <span>{{ t('timer.minutes') }}</span>
             <input v-model.number="manualMinutes" type="number" min="1" step="1" inputmode="numeric" />
           </label>
           <div class="controls">
-            <button type="button" class="btn ghost" :disabled="busy" @click="manualOpen = false">Back</button>
-            <button type="button" class="btn primary" :disabled="busy" @click="submitManual">Save manual time</button>
+            <button type="button" class="btn ghost" :disabled="busy" @click="manualOpen = false">{{ t('timer.back') }}</button>
+            <button type="button" class="btn primary" :disabled="busy" @click="submitManual">{{ t('timer.saveManual') }}</button>
           </div>
         </div>
       </div>
@@ -317,10 +320,10 @@ watch(
 
       <!-- Close confirmation -->
       <div v-if="closeConfirmOpen" class="confirm">
-        <p>Keep the captured time?</p>
+        <p>{{ t('timer.keepConfirm') }}</p>
         <div class="controls">
-          <button type="button" class="btn" :disabled="busy" @click="confirmClose(false)">Cancel (discard)</button>
-          <button type="button" class="btn primary" :disabled="busy" @click="confirmClose(true)">Validate (keep)</button>
+          <button type="button" class="btn" :disabled="busy" @click="confirmClose(false)">{{ t('timer.cancelDiscard') }}</button>
+          <button type="button" class="btn primary" :disabled="busy" @click="confirmClose(true)">{{ t('timer.validateKeep') }}</button>
         </div>
       </div>
     </div>

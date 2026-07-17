@@ -8,6 +8,9 @@ import { MINUTES_PER_DAY, startOfDay, toDateTimeInputValue, fromDateTimeInputVal
 import { DEFAULT_CREATE_MINUTES, HOUR_HEIGHT, minutesToY, snapMinutes, yToMinutes } from '@/lib/grid';
 import { useCalendarDrag, type BlockContext } from '@/composables/useCalendarDrag';
 import CalendarBlockView from './CalendarBlockView.vue';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   days: Date[];
@@ -342,7 +345,7 @@ defineExpose({ dropAt });
     </div>
 
     <div v-if="showOverdue" class="overdue-row">
-      <div class="gutter-spacer overdue-label">Overdue</div>
+      <div class="gutter-spacer overdue-label">{{ t('calendarGrid.overdue') }}</div>
       <div v-for="(column, index) in dayColumns" :key="column.day.toISOString()" class="overdue-cell">
         <div v-if="index === todayColumnIndex" class="overdue-anchor">
           <button type="button" class="overdue-chip" @click="overdueOpen = !overdueOpen">
@@ -356,20 +359,20 @@ defineExpose({ dropAt });
                 <button
                   type="button"
                   class="oi-open"
-                  title="Drag onto the calendar to reschedule, or click to open"
+                  :title="t('calendarGrid.reminderDragHint')"
                   @pointerdown="onItemPointerDown(reminder, $event)"
                 >
                   <span class="oi-title">{{ reminder.title }}</span>
-                  <span class="oi-when">due {{ formatOverdueSince(reminder) }}</span>
+                  <span class="oi-when">{{ t('calendarGrid.overdueSince', { since: formatOverdueSince(reminder) }) }}</span>
                 </button>
-                <button type="button" class="oi-resched" @click="openReschedule(reminder)">Reschedule</button>
+                <button type="button" class="oi-resched" @click="openReschedule(reminder)">{{ t('calendarGrid.reschedule') }}</button>
               </div>
               <div v-if="rescheduleKey === reminder.idItemOccurrence" class="oi-editor">
                 <input v-model="rescheduleStart" type="datetime-local" />
                 <span class="arrow">→</span>
                 <input v-model="rescheduleEnd" type="datetime-local" />
                 <button type="button" class="btn-mini primary" @click="confirmReschedule(reminder)">OK</button>
-                <button type="button" class="btn-mini" @click="rescheduleKey = null">Cancel</button>
+                <button type="button" class="btn-mini" @click="rescheduleKey = null">{{ t('common.cancel') }}</button>
               </div>
             </div>
           </div>
@@ -378,7 +381,7 @@ defineExpose({ dropAt });
     </div>
 
     <div v-if="hasAllDay" class="all-day-row">
-      <div class="gutter-spacer all-day-label">All day</div>
+      <div class="gutter-spacer all-day-label">{{ t('calendarGrid.allDay') }}</div>
       <div v-for="column in dayColumns" :key="column.day.toISOString()" class="all-day-cell">
         <div
           v-for="block in column.allDay"

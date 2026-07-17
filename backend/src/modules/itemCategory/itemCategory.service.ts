@@ -18,7 +18,7 @@ export const assertCategoriesInWorkspace = async (workspaceId: number, categoryI
     .from(category)
     .where(and(eq(category.workspaceId, workspaceId), inArray(category.idCategory, unique)));
   if (valid.length !== unique.length) {
-    throw new AppError(400, 'One or more categories do not belong to this workspace.');
+    throw new AppError(400, 'CATEGORIES_WRONG_WORKSPACE');
   }
 };
 
@@ -36,15 +36,19 @@ export const replaceItemCategories = async (
   }
 };
 
+// Ordered by idItemCategory so the first id is the primary (first-added) category —
+// the one that feeds the color cascade (guide §7).
 export const categoryIdsForItem = async (itemId: number): Promise<number[]> => {
   const rows = await db
     .select({ categoryId: itemCategory.categoryId })
     .from(itemCategory)
-    .where(eq(itemCategory.itemId, itemId));
+    .where(eq(itemCategory.itemId, itemId))
+    .orderBy(itemCategory.idItemCategory);
   return rows.map((row) => row.categoryId);
 };
 
-// One grouped query for a set of items (no N+1 — Constitution).
+// One grouped query for a set of items (no N+1 — Constitution). Ordered by
+// idItemCategory so each list stays primary-first.
 export const categoryIdsByItem = async (itemIds: number[]): Promise<Map<number, number[]>> => {
   const grouped = new Map<number, number[]>();
   if (itemIds.length === 0) {
@@ -53,7 +57,8 @@ export const categoryIdsByItem = async (itemIds: number[]): Promise<Map<number, 
   const rows = await db
     .select({ itemId: itemCategory.itemId, categoryId: itemCategory.categoryId })
     .from(itemCategory)
-    .where(inArray(itemCategory.itemId, itemIds));
+    .where(inArray(itemCategory.itemId, itemIds))
+    .orderBy(itemCategory.idItemCategory);
   for (const row of rows) {
     const list = grouped.get(row.itemId) ?? [];
     list.push(row.categoryId);

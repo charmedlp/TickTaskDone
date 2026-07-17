@@ -1,10 +1,20 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import type { CategoryDto } from '@ticktaskdone/shared';
+import { useI18n } from 'vue-i18n';
+import type { CategoryDto, ColorNode } from '@ticktaskdone/shared';
+import { DEFAULT_COLOR, lineageColor } from '@ticktaskdone/shared';
 import { createCategory, listCategories } from '@/api/categories';
 import { checkedSet as computeCheckedSet, selectCategory, toggleCategory } from '@/lib/categoryTree';
 
-const props = defineProps<{ modelValue: number[] }>();
+const { t } = useI18n();
+
+// `disabledIds` are categories that cannot be picked here because they already apply
+// through another channel — e.g. a child project inheriting a parent's category
+// (guide §7). They render checked-but-locked so the user sees they are covered
+// without being able to store a duplicate.
+const props = withDefaults(defineProps<{ modelValue: number[]; disabledIds?: number[] }>(), {
+  disabledIds: () => [],
+});
 const emit = defineEmits<{ 'update:modelValue': [number[]]; loaded: [CategoryDto[]] }>();
 
 // Colors are assigned automatically here; editing them happens in the Projects view.
@@ -24,6 +34,12 @@ const load = async (): Promise<void> => {
 onMounted(load);
 
 const byId = computed(() => new Map(categories.value.map((category) => [category.idCategory, category])));
+
+// A category with no own color inherits its nearest colored ancestor's (guide §7).
+const colorNodes = computed<Map<number, ColorNode>>(
+  () => new Map(categories.value.map((category) => [category.idCategory, { parentId: category.parentCategoryId, color: category.color }])),
+);
+const effectiveColor = (idCategory: number): string => lineageColor(idCategory, colorNodes.value) ?? DEFAULT_COLOR;
 
 // Only the stored LEAVES are shown as tags (deepest tagged categories); their
 // ancestors are deduced, not shown separately.
@@ -72,9 +88,14 @@ const flat = computed<FlatCategory[]>(() => {
   return result;
 });
 
-const isSelected = (idCategory: number): boolean => checked.value.has(idCategory);
+const disabledSet = computed(() => new Set(props.disabledIds));
+const isDisabled = (idCategory: number): boolean => disabledSet.value.has(idCategory);
+const isSelected = (idCategory: number): boolean => checked.value.has(idCategory) || isDisabled(idCategory);
 
 const toggle = (idCategory: number): void => {
+  if (isDisabled(idCategory)) {
+    return; // inherited elsewhere — locked to avoid a duplicate
+  }
   emit('update:modelValue', toggleCategory(categories.value, props.modelValue, idCategory));
 };
 
@@ -95,7 +116,9 @@ const confirmAdd = async (): Promise<void> => {
   const created = await createCategory({
     name,
     parentCategoryId: addingParentId.value,
-    color: PALETTE[categories.value.length % PALETTE.length] ?? '#557799',
+    // A child category inherits its parent's color dynamically (null); a root gets a
+    // distinct palette color so top-level tags stay visually separable (guide §7).
+    color: addingParentId.value === null ? (PALETTE[categories.value.length % PALETTE.length] ?? '#557799') : null,
   });
   await load();
   emit('update:modelValue', selectCategory(categories.value, props.modelValue, created.idCategory)); // auto-select
@@ -125,46 +148,48 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
     <div class="control" @click="open = !open">
       <template v-if="selectedCategories.length > 0">
         <span v-for="category in selectedCategories" :key="category.idCategory" class="tag">
-          <span class="tag-dot" :style="{ backgroundColor: category.color }" />
+          <span class="tag-dot" :style="{ backgroundColor: effectiveColor(category.idCategory) }" />
           {{ ancestryLabel(category) }}
           <button type="button" class="tag-remove" @click.stop="toggle(category.idCategory)">×</button>
         </span>
       </template>
-      <span v-else class="placeholder">No categories</span>
+      <span v-else class="placeholder">{{ t('categoryPicker.none') }}</span>
       <span class="caret" :class="{ up: open }">▾</span>
     </div>
 
     <div v-if="open" class="panel">
-      <p v-if="flat.length === 0 && !adding" class="empty">No categories yet.</p>
+      <p v-if="flat.length === 0 && !adding" class="empty">{{ t('categoryPicker.empty') }}</p>
 
       <template v-for="entry in flat" :key="entry.category.idCategory">
-        <div class="cat-row" :style="{ paddingLeft: `${entry.depth * 16}px` }">
+        <div class="cat-row" :class="{ 'is-inherited': isDisabled(entry.category.idCategory) }" :style="{ paddingLeft: `${entry.depth * 16}px` }">
           <label class="cat-label">
             <input
               type="checkbox"
               :checked="isSelected(entry.category.idCategory)"
+              :disabled="isDisabled(entry.category.idCategory)"
               @change="toggle(entry.category.idCategory)"
             />
-            <span class="swatch" :style="{ backgroundColor: entry.category.color }" />
+            <span class="swatch" :style="{ backgroundColor: effectiveColor(entry.category.idCategory) }" />
             <span class="cat-name">{{ entry.category.name }}</span>
+            <span v-if="isDisabled(entry.category.idCategory)" class="inherited-tag">{{ t('categoryPicker.inherited') }}</span>
           </label>
-          <button type="button" class="add-child" title="Add a child category" @click="startAdd(entry.category.idCategory)">
+          <button type="button" class="add-child" :title="t('categoryPicker.addChildTitle')" @click="startAdd(entry.category.idCategory)">
             +
           </button>
         </div>
         <div v-if="adding && addingParentId === entry.category.idCategory" class="cat-add" :style="{ paddingLeft: `${(entry.depth + 1) * 16}px` }">
-          <input v-model="newName" placeholder="Child name" @keyup.enter="confirmAdd" @keyup.esc="cancelAdd" />
-          <button type="button" @click="confirmAdd">Add</button>
+          <input v-model="newName" :placeholder="t('categoryPicker.childName')" @keyup.enter="confirmAdd" @keyup.esc="cancelAdd" />
+          <button type="button" @click="confirmAdd">{{ t('common.add') }}</button>
           <button type="button" class="ghost" @click="cancelAdd">×</button>
         </div>
       </template>
 
       <div v-if="adding && addingParentId === null" class="cat-add">
-        <input v-model="newName" placeholder="Category name" @keyup.enter="confirmAdd" @keyup.esc="cancelAdd" />
-        <button type="button" @click="confirmAdd">Add</button>
+        <input v-model="newName" :placeholder="t('categoryPicker.categoryName')" @keyup.enter="confirmAdd" @keyup.esc="cancelAdd" />
+        <button type="button" @click="confirmAdd">{{ t('common.add') }}</button>
         <button type="button" class="ghost" @click="cancelAdd">×</button>
       </div>
-      <button v-else type="button" class="add-root" @click="startAdd(null)">+ Add category</button>
+      <button v-else type="button" class="add-root" @click="startAdd(null)">{{ t('categoryPicker.addCategory') }}</button>
     </div>
   </div>
 </template>
@@ -285,6 +310,21 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
 
 .cat-name {
   font-size: 13px;
+}
+
+/* Inherited from a parent project: checked-but-locked, so it reads as "already
+   covered" rather than pickable. */
+.cat-row.is-inherited .cat-label {
+  cursor: default;
+  color: var(--text-muted);
+}
+
+.inherited-tag {
+  font-size: 11px;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 0 6px;
 }
 
 .add-child {

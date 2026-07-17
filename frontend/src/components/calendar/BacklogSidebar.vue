@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { BacklogTaskDto, ProjectDto } from '@ticktaskdone/shared';
 import { formatDayHeader } from '@/lib/format';
 
 const props = defineProps<{ tasks: BacklogTaskDto[]; projects: ProjectDto[] }>();
 const emit = defineEmits<{ dragstart: [payload: { task: BacklogTaskDto; event: PointerEvent }] }>();
 
+const { t } = useI18n();
 const collapsed = ref(true); // collapsed by default
 
 // Nulls (no due date) sort last, otherwise ascending.
@@ -16,10 +18,13 @@ const byDueDate = (left: BacklogTaskDto, right: BacklogTaskDto): number => {
   return left.dueDate < right.dueDate ? -1 : 1;
 };
 
+// projectId null = the virtual "Task List" group (no stored project — Task List brief §1).
 const projectName = (projectId: number | null): string =>
-  projectId === null ? 'Task List' : (props.projects.find((project) => project.idProject === projectId)?.name ?? 'Project');
+  projectId === null
+    ? t('backlog.taskListLabel')
+    : (props.projects.find((project) => project.idProject === projectId)?.name ?? t('backlog.project'));
 
-// Grouped by project, ephemeral ("Task List") first then alphabetical.
+// Grouped by project, the virtual Task List first then alphabetical.
 const groups = computed(() => {
   const byProject = new Map<number | null, BacklogTaskDto[]>();
   for (const task of props.tasks) {
@@ -42,19 +47,19 @@ const formatDue = (dueDate: string): string => formatDayHeader(new Date(dueDate)
 <template>
   <aside class="backlog-panel" :class="{ collapsed }">
     <!-- Collapsed bar (fades in/out; the panel width animates) -->
-    <button class="layer bar" aria-label="Show backlog" @click="collapsed = false">
+    <button class="layer bar" :aria-label="t('backlog.show')" @click="collapsed = false">
       <span class="chevron">‹</span>
-      <span class="vertical">Backlog<span v-if="tasks.length > 0" class="count">{{ tasks.length }}</span></span>
+      <span class="vertical">{{ t('backlog.title') }}<span v-if="tasks.length > 0" class="count">{{ tasks.length }}</span></span>
     </button>
 
     <!-- Expanded panel (fixed width so it does not reflow while the width animates) -->
     <div class="layer expanded">
       <div class="header">
-        <h3 class="backlog-title">Backlog</h3>
-        <button class="collapse" aria-label="Hide backlog" @click="collapsed = true">›</button>
+        <h3 class="backlog-title">{{ t('backlog.title') }}</h3>
+        <button class="collapse" :aria-label="t('backlog.hide')" @click="collapsed = true">›</button>
       </div>
 
-      <p v-if="tasks.length === 0" class="empty">No unscheduled tasks. Drag to plan them.</p>
+      <p v-if="tasks.length === 0" class="empty">{{ t('backlog.empty') }}</p>
 
       <div class="scroll">
         <section v-for="group in groups" :key="String(group.projectId)" class="group">
@@ -67,7 +72,7 @@ const formatDue = (dueDate: string): string => formatDayHeader(new Date(dueDate)
             @pointerdown="emit('dragstart', { task, event: $event })"
           >
             <span class="card-title">{{ task.title }}</span>
-            <span v-if="task.dueDate" class="due">Due {{ formatDue(task.dueDate) }}</span>
+            <span v-if="task.dueDate" class="due">{{ t('backlog.due', { date: formatDue(task.dueDate) }) }}</span>
           </div>
         </section>
       </div>

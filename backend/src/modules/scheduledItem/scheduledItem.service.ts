@@ -1,9 +1,10 @@
 import { eq } from 'drizzle-orm';
 import type { CreateScheduledItemInput } from '@ticktaskdone/shared';
 import { db } from '../../db/db';
-import { item, itemOccurrence, project, timeBlock, type TimeBlock } from '../../db/schema';
+import { item, itemOccurrence, timeBlock, type TimeBlock } from '../../db/schema';
 import { assertCategoriesInWorkspace, replaceItemCategories } from '../itemCategory/itemCategory.service';
 import { assertNoBlockingOverlap } from '../timeBlock/timeBlock.service';
+import { loadColorContext, resolveItemColor } from '../item/itemColor';
 import type { OccurrenceView } from '../occurrence/occurrence.service';
 
 // Creates an item, its first occurrence, and optionally one timeBlock, atomically.
@@ -15,7 +16,7 @@ export const createScheduledItem = async (
 ): Promise<OccurrenceView> => {
   await assertCategoriesInWorkspace(workspaceId, input.item.categoryIds ?? []);
 
-  return db.transaction(async (transaction) => {
+  const view = await db.transaction(async (transaction) => {
     const [{ idItem }] = await transaction
       .insert(item)
       .values({
@@ -69,12 +70,7 @@ export const createScheduledItem = async (
       });
     }
 
-    const [row] = await transaction
-      .select({ item, projectColor: project.color })
-      .from(item)
-      .leftJoin(project, eq(item.projectId, project.idProject))
-      .where(eq(item.idItem, idItem))
-      .limit(1);
+    const [row] = await transaction.select({ item }).from(item).where(eq(item.idItem, idItem)).limit(1);
     const [occurrence] = await transaction
       .select()
       .from(itemOccurrence)
@@ -87,7 +83,7 @@ export const createScheduledItem = async (
 
     return {
       item: row.item,
-      projectColor: row.projectColor,
+      resolvedColor: '', // resolved after commit (the cascade needs the committed category links)
       idItemOccurrence: occurrence.idItemOccurrence,
       occurrenceDate: occurrence.occurrenceDate,
       status: occurrence.status,
@@ -97,4 +93,7 @@ export const createScheduledItem = async (
       timeLogs: [], // a freshly created scheduled item has no real time yet
     };
   });
+
+  const colorContext = await loadColorContext(workspaceId);
+  return { ...view, resolvedColor: resolveItemColor(view.item, colorContext) };
 };

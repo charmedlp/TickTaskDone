@@ -4,7 +4,7 @@ import type { BacklogTaskDto, OccurrenceViewDto, ReminderDto } from '@ticktaskdo
 import { fetchOccurrences } from '@/api/occurrences';
 import { fetchBacklog } from '@/api/backlog';
 import { fetchReminders } from '@/api/reminders';
-import { ApiError } from '@/api/client';
+import { errorMessage } from '@/lib/errorMessage';
 import { type CalendarViewType, stepAnchor, windowForView } from '@/lib/datetime';
 
 // Planned = timeBlocks (the plan). Actual = timeLogs (real time spent). The toggle
@@ -36,7 +36,7 @@ export const useCalendarStore = defineStore('calendar', () => {
     try {
       occurrences.value = await fetchOccurrences(window.value.from, window.value.to);
     } catch (cause) {
-      error.value = cause instanceof ApiError ? cause.message : 'Failed to load the calendar.';
+      error.value = errorMessage(cause);
       occurrences.value = [];
     } finally {
       loading.value = false;
@@ -96,7 +96,7 @@ export const useCalendarStore = defineStore('calendar', () => {
       // A rejected gesture (e.g. a move rejected as a blocking overlap) surfaces as a
       // transient bottom toast; then reconcile so the optimistic change reverts to the
       // server truth instead of lingering on screen.
-      toast.value = cause instanceof ApiError ? cause.message : 'Action refused.';
+      toast.value = errorMessage(cause);
       await Promise.all([load(true), loadBacklog()]);
       return undefined;
     }

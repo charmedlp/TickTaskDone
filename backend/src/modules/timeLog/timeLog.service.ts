@@ -83,7 +83,7 @@ export const updateTimeLog = async (
   const startedAt = input.startedAt ?? current.startedAt;
   const endedAt = input.endedAt === undefined ? current.endedAt : input.endedAt;
   if (endedAt !== null && endedAt <= startedAt) {
-    throw new AppError(400, 'endedAt must be after startedAt.');
+    throw new AppError(400, 'LOG_END_BEFORE_START');
   }
 
   await db

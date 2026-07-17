@@ -69,7 +69,7 @@ const makeLog = (overrides: Partial<TimeLog>): TimeLog => ({
   ...overrides,
 });
 
-const context = (item: Item, projectColor: string | null = null): ItemContext => ({ item, projectColor });
+const context = (item: Item, resolvedColor = '#808080'): ItemContext => ({ item, resolvedColor });
 
 const from = utc(2026, 1, 1, 0);
 const to = utc(2026, 2, 1, 0);

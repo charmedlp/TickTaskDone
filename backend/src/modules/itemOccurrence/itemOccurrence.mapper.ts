@@ -14,9 +14,10 @@ export const toItemOccurrenceDto = (row: ItemOccurrence): ItemOccurrenceDto => (
 });
 
 export const toPlannedMomentDto = (moment: ItemMoment): PlannedMomentDto => ({
-  idItemOccurrence: moment.occurrence.idItemOccurrence,
-  occurrenceDate: moment.occurrence.occurrenceDate?.toISOString() ?? null,
-  status: moment.occurrence.status,
-  dueDate: moment.occurrence.dueDate?.toISOString() ?? null,
+  idItemOccurrence: moment.idItemOccurrence,
+  occurrenceDate: moment.occurrenceDate?.toISOString() ?? null,
+  status: moment.status,
+  dueDate: moment.dueDate?.toISOString() ?? null,
   timeBlocks: moment.timeBlocks.map(toTimeBlockDto),
+  materialized: moment.materialized,
 });

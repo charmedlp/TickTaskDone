@@ -14,7 +14,7 @@ occurrenceRouter.get(
   asyncHandler(async (request, response) => {
     const parsed = occurrenceWindowQuery.safeParse(request.query);
     if (!parsed.success) {
-      throw new AppError(400, parsed.error.issues[0]?.message ?? 'Invalid date window.');
+      throw new AppError(400, 'INVALID_DATE_WINDOW', parsed.error.issues);
     }
     const views = await occurrenceService.getWindowOccurrences(
       request.workspaceId,

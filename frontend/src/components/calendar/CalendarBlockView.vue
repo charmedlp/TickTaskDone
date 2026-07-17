@@ -3,6 +3,9 @@ import { computed } from 'vue';
 import type { LayoutBox } from '@/lib/layout';
 import type { CalendarBlock } from '@/lib/renderables';
 import { formatTimeRange } from '@/lib/format';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   block: CalendarBlock;
@@ -92,15 +95,15 @@ const onBodyPointerDown = (event: PointerEvent): void => {
       <svg v-if="isDone" viewBox="0 0 16 16" class="tick"><path d="M3 8l3.5 3.5L13 5" /></svg>
     </span>
 
-    <span v-if="overdue" class="overdue-flag" title="Overdue">⚠</span>
+    <span v-if="overdue" class="overdue-flag" :title="t('calendarGrid.overdue')">⚠</span>
     <span class="title" :style="{ '--title-lines': titleLines }">{{ block.occurrence.title }}</span>
     <span v-if="showTime" class="time">{{ formatTimeRange(block.start, block.end) }}</span>
     <button
       v-if="isTask && canTime && !isCancelled"
       type="button"
       class="timer"
-      title="Start timer"
-      aria-label="Start timer"
+      :title="t('calendarGrid.startTimer')"
+      :aria-label="t('calendarGrid.startTimer')"
       @pointerdown.stop
       @click.stop="emit('timer')"
     >

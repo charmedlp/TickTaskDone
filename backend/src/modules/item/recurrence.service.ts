@@ -1,4 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm';
+import type { EnableRecurrenceInput } from '@ticktaskdone/shared';
 import { db } from '../../db/db';
 import { item, itemCategory, itemOccurrence, timeBlock, timeLog } from '../../db/schema';
 import { AppError, notFound } from '../../http/errors';
@@ -16,8 +17,9 @@ export const enableRecurrence = async (
   workspaceId: number,
   userId: number,
   idItem: number,
-  rrule: string,
+  input: EnableRecurrenceInput,
 ): Promise<void> => {
+  const { rrule } = input;
   await db.transaction(async (transaction) => {
     const [definition] = await transaction
       .select()
@@ -28,10 +30,10 @@ export const enableRecurrence = async (
       throw notFound('Item');
     }
     if (definition.type !== 'task') {
-      throw new AppError(400, 'Only tasks can be made recurring.');
+      throw new AppError(400, 'ONLY_TASKS_CAN_RECUR');
     }
     if (definition.rrule !== null) {
-      throw new AppError(400, 'This task is already recurring.');
+      throw new AppError(400, 'TASK_ALREADY_RECURRING');
     }
 
     // A non-recurring task has a single occurrence (occurrenceDate null); create one
@@ -56,9 +58,10 @@ export const enableRecurrence = async (
       : [];
     const sorted = [...blocks].sort((left, right) => left.timeStart.getTime() - right.timeStart.getTime());
 
-    // The rule anchor: earliest block's start, else the occurrence's dueDate, else now.
-    const recurrenceStart = sorted[0]?.timeStart ?? anchor.dueDate ?? new Date();
-    const timezone = sorted[0]?.timezone ?? definition.timezone ?? null;
+    // The rule anchor ("À partir de …"): the client's explicit value when given,
+    // otherwise derived — earliest block's start, else the occurrence's dueDate, else now.
+    const recurrenceStart = input.recurrenceStart ?? sorted[0]?.timeStart ?? anchor.dueDate ?? new Date();
+    const timezone = input.timezone ?? sorted[0]?.timezone ?? definition.timezone ?? null;
 
     // The anchor occurrence becomes the first (on-rule) instance, keeping its status,
     // dueDate and earliest block.
@@ -104,7 +107,7 @@ export const removeRecurrence = async (workspaceId: number, userId: number, idIt
       throw notFound('Item');
     }
     if (definition.rrule === null) {
-      throw new AppError(400, 'This task is not recurring.');
+      throw new AppError(400, 'TASK_NOT_RECURRING');
     }
 
     const occurrences = await transaction.select().from(itemOccurrence).where(eq(itemOccurrence.itemId, idItem));

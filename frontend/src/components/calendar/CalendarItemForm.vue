@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import {
   createScheduledItemInput,
   type CreateScheduledItemInput,
@@ -8,9 +9,16 @@ import {
   type ProjectDto,
 } from '@ticktaskdone/shared';
 import { browserTimezone, fromDateTimeInputValue, toDateTimeInputValue } from '@/lib/datetime';
-import { buildRrule, emptyRecurrence, type Frequency, type RecurrenceModel } from '@/lib/recurrenceModel';
+import {
+  buildRrule,
+  emptyRecurrence,
+  WEEKDAYS,
+  type Frequency,
+  type RecurrenceModel,
+  type Weekday,
+} from '@/lib/recurrenceModel';
 import CategoryPicker from './CategoryPicker.vue';
-import type { CategoryDto } from '@ticktaskdone/shared';
+import ColorPicker from '@/components/ColorPicker.vue';
 import type { FormSeed, ScheduleSubmit, UpdateSubmit } from './itemForm.types';
 
 const props = defineProps<{ seed: FormSeed | null; projects: ProjectDto[]; items: ItemDto[] }>();
@@ -20,6 +28,8 @@ const emit = defineEmits<{
   update: [UpdateSubmit];
   close: [];
 }>();
+
+const { t } = useI18n();
 
 const DEFAULT_COLOR = '#3366cc';
 
@@ -77,12 +87,14 @@ watch(
   { immediate: true },
 );
 
-const frequencies: { id: Frequency; label: string }[] = [
-  { id: 'none', label: 'Does not repeat' },
-  { id: 'daily', label: 'Daily' },
-  { id: 'weekly', label: 'Weekly' },
-  { id: 'monthly', label: 'Monthly' },
-];
+const frequencies: Frequency[] = ['none', 'daily', 'weekly', 'monthly'];
+
+// Toggle a weekday for a weekly BYDAY rule (e.g. Tue+Sat, or Mon–Fri).
+const toggleWeekday = (day: Weekday): void => {
+  form.recurrence.weekdays = form.recurrence.weekdays.includes(day)
+    ? form.recurrence.weekdays.filter((value) => value !== day)
+    : [...form.recurrence.weekdays, day];
+};
 
 // Switching to Event clears any picked task: events are always new (unique or
 // fixed recurrence), never scheduled as another instance of an existing one.
@@ -117,37 +129,11 @@ const showItemDetail = computed(() => form.mode === 'edit' || isNew.value);
 // Times are editable when creating, and when editing an item that has a placed block.
 const showTimeFields = computed(() => form.mode === 'create' || (form.mode === 'edit' && timeBlockId.value !== null));
 
-// --- Category selection & auto-color (brief §5) -----------------------------
-// The full category tree, provided by the picker, to resolve lineage color.
-const categoryTree = ref<CategoryDto[]>([]);
-
-// Walk a category's ancestry to the first color (categories always carry one, but
-// the walk honors the brief's `category.color ?? parent.color ?? …`).
-const resolveCategoryColor = (categoryId: number): string | null => {
-  const byId = new Map(categoryTree.value.map((category) => [category.idCategory, category]));
-  let current = byId.get(categoryId);
-  while (current) {
-    if (current.color) {
-      return current.color;
-    }
-    current = current.parentCategoryId !== null ? byId.get(current.parentCategoryId) : undefined;
-  }
-  return null;
-};
-
-// Runs only on an actual pick (never on seed load, since we bind via a handler):
-// the FIRST chosen category paints item.color, but only for an item with no project
-// and no custom color yet. Once color is set it is custom and later picks leave it.
+// --- Category selection ------------------------------------------------------
+// Assigning a category NEVER touches item.color (guide §7): the category feeds the
+// render cascade dynamically, after the project, so there is no copy/side effect
+// here. "Custom color" stays a purely deliberate user choice (item.color !== null).
 const onCategoriesChange = (categoryIds: number[]): void => {
-  const added = categoryIds.length > form.categoryIds.length;
-  const first = categoryIds[0];
-  if (added && first !== undefined && form.projectId === null && !form.useColor) {
-    const color = resolveCategoryColor(first);
-    if (color !== null) {
-      form.color = color;
-      form.useColor = true;
-    }
-  }
   form.categoryIds = categoryIds;
 };
 
@@ -191,7 +177,7 @@ const submit = (): void => {
 
   // Ordering matters whenever timed bounds are in play (create, or editing a block).
   if (showTimeFields.value && !form.allDay && timeEnd <= timeStart) {
-    errorMessage.value = 'End must be after start.';
+    errorMessage.value = t('itemForm.endAfterStart');
     return;
   }
 
@@ -240,7 +226,7 @@ const submit = (): void => {
   };
   const parsed = createScheduledItemInput.safeParse(input);
   if (!parsed.success) {
-    errorMessage.value = parsed.error.issues[0]?.message ?? 'Invalid values.';
+    errorMessage.value = parsed.error.issues[0]?.message ?? t('itemForm.invalidValues');
     return;
   }
   emit('create', parsed.data); // categoryIds travel inside input.item (brief §8)
@@ -250,19 +236,19 @@ const submit = (): void => {
 <template>
   <div v-if="seed" class="overlay" @pointerdown.self="emit('close')">
     <form class="dialog" @submit.prevent="submit">
-      <h3>{{ form.mode === 'create' ? 'New calendar entry' : 'Edit item' }}</h3>
+      <h3>{{ form.mode === 'create' ? t('itemForm.newEntry') : t('itemForm.editItem') }}</h3>
 
       <!-- Item type: always visible -->
       <div class="type-toggle">
-        <button type="button" :class="{ active: form.type === 'task' }" @click="setType('task')">Task</button>
-        <button type="button" :class="{ active: form.type === 'event' }" @click="setType('event')">Event</button>
+        <button type="button" :class="{ active: form.type === 'task' }" @click="setType('task')">{{ t('itemForm.task') }}</button>
+        <button type="button" :class="{ active: form.type === 'event' }" @click="setType('event')">{{ t('itemForm.event') }}</button>
       </div>
 
       <!-- Existing-task picker (tasks only, grouped by project) -->
       <label v-if="showPicker">
-        Task
+        {{ t('itemForm.task') }}
         <select v-model="source">
-          <option value="new">New task…</option>
+          <option value="new">{{ t('itemForm.newTask') }}</option>
           <optgroup v-for="group in projectGroups" :key="group.name" :label="group.name">
             <option v-for="task in group.tasks" :key="task.idItem" :value="task.idItem">{{ task.title }}</option>
           </optgroup>
@@ -272,14 +258,14 @@ const submit = (): void => {
       <!-- Item detail fields (hidden when scheduling an existing task) -->
       <template v-if="showItemDetail">
         <label>
-          Title
+          {{ t('itemForm.title') }}
           <input v-model="form.title" type="text" maxlength="255" required />
         </label>
 
         <label>
-          Project
+          {{ t('itemForm.project') }}
           <select v-model="form.projectId">
-            <option :value="null">None (ephemeral)</option>
+            <option :value="null">{{ t('itemForm.projectNone') }}</option>
             <option v-for="project in projects" :key="project.idProject" :value="project.idProject">
               {{ project.name }}
             </option>
@@ -287,83 +273,91 @@ const submit = (): void => {
         </label>
 
         <label>
-          Description
+          {{ t('itemForm.description') }}
           <textarea v-model="form.description" rows="2" />
         </label>
 
         <div class="row">
           <label class="inline">
             <input v-model="form.useColor" type="checkbox" />
-            Custom color
+            {{ t('itemForm.customColor') }}
           </label>
-          <input v-if="form.useColor" v-model="form.color" type="color" />
-          <span v-else class="hint">Uses the project / default color</span>
+          <ColorPicker v-if="form.useColor" v-model="form.color" />
+          <span v-else class="hint">{{ t('itemForm.colorHint') }}</span>
         </div>
 
         <label v-if="form.type === 'task'">
-          Estimated minutes
+          {{ t('itemForm.estimatedMinutes') }}
           <input v-model.number="form.estimatedMinutes" type="number" min="1" />
         </label>
 
         <fieldset class="recurrence">
-          <legend>Recurrence</legend>
+          <legend>{{ t('itemForm.recurrence') }}</legend>
           <select v-model="form.recurrence.freq">
-            <option v-for="frequency in frequencies" :key="frequency.id" :value="frequency.id">
-              {{ frequency.label }}
+            <option v-for="frequency in frequencies" :key="frequency" :value="frequency">
+              {{ t('itemForm.freq.' + frequency) }}
             </option>
           </select>
           <template v-if="form.recurrence.freq !== 'none'">
             <label class="inline">
-              every
+              {{ t('itemForm.every') }}
               <input v-model.number="form.recurrence.interval" type="number" min="1" class="narrow" />
             </label>
+            <div v-if="form.recurrence.freq === 'weekly'" class="rc-weekdays">
+              <button
+                v-for="day in WEEKDAYS"
+                :key="day.value"
+                type="button"
+                class="rc-weekday"
+                :class="{ on: form.recurrence.weekdays.includes(day.value) }"
+                @click="toggleWeekday(day.value)"
+              >
+                {{ t('weekday.' + day.value) }}
+              </button>
+            </div>
             <label class="inline">
-              for
+              {{ t('itemForm.for') }}
               <input v-model.number="form.recurrence.count" type="number" min="1" class="narrow" placeholder="∞" />
-              times
+              {{ t('itemForm.times') }}
             </label>
           </template>
         </fieldset>
 
         <div class="field">
-          <span class="field-label">Categories</span>
-          <CategoryPicker
-            :model-value="form.categoryIds"
-            @update:model-value="onCategoriesChange"
-            @loaded="categoryTree = $event"
-          />
+          <span class="field-label">{{ t('itemForm.categories') }}</span>
+          <CategoryPicker :model-value="form.categoryIds" @update:model-value="onCategoriesChange" />
         </div>
       </template>
 
       <!-- Occurrence / timeBlock fields (always shown) -->
       <div v-if="showTimeFields" class="row">
         <label>
-          Start
+          {{ t('itemForm.start') }}
           <input v-model="form.timeStart" type="datetime-local" required />
         </label>
         <label>
-          End
+          {{ t('itemForm.end') }}
           <input v-model="form.timeEnd" type="datetime-local" required />
         </label>
       </div>
 
       <label v-if="effectiveType === 'task'">
-        Due date
+        {{ t('itemForm.dueDate') }}
         <input v-model="form.dueDate" type="datetime-local" />
       </label>
 
       <div class="row">
-        <label class="inline"><input v-model="form.allDay" type="checkbox" /> All day</label>
+        <label class="inline"><input v-model="form.allDay" type="checkbox" /> {{ t('itemForm.allDay') }}</label>
         <!-- All-day items float (no timed slot), so they can't block. To block a whole
              day, use a timed midnight-to-midnight event with All day unchecked. -->
-        <label v-if="!form.allDay" class="inline"><input v-model="form.isBlocking" type="checkbox" /> Blocking</label>
+        <label v-if="!form.allDay" class="inline"><input v-model="form.isBlocking" type="checkbox" /> {{ t('itemForm.blocking') }}</label>
       </div>
 
       <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
 
       <div class="actions">
-        <button type="button" class="ghost" @click="emit('close')">Cancel</button>
-        <button type="submit" class="primary">{{ form.mode === 'create' ? 'Create' : 'Save' }}</button>
+        <button type="button" class="ghost" @click="emit('close')">{{ t('common.cancel') }}</button>
+        <button type="submit" class="primary">{{ form.mode === 'create' ? t('itemForm.create') : t('common.save') }}</button>
       </div>
     </form>
   </div>
@@ -499,6 +493,29 @@ legend {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
+}
+
+.rc-weekdays {
+  display: flex;
+  gap: 3px;
+}
+
+.rc-weekday {
+  min-width: 28px;
+  padding: 4px 0;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.rc-weekday.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 
 .form-error {

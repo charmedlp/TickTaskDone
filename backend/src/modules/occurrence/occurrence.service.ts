@@ -1,11 +1,10 @@
 import { and, desc, eq, gte, isNotNull, isNull, lt, lte, ne, or } from 'drizzle-orm';
 import { instantToWallClock, wallClockToInstant } from '../../domain/timezone';
-import { resolveColor, type MoveOccurrenceInput, type OccurrenceStatus, type ScheduleOccurrenceInput } from '@ticktaskdone/shared';
+import type { MoveOccurrenceInput, OccurrenceStatus, ScheduleOccurrenceInput } from '@ticktaskdone/shared';
 import { db, type Transaction } from '../../db/db';
 import {
   item,
   itemOccurrence,
-  project,
   timeBlock,
   timeLog,
   type Item,
@@ -15,12 +14,13 @@ import {
 } from '../../db/schema';
 import { expandRecurrence, latestArrivedSlot, mergeSlots } from '../../domain/recurrence';
 import { assertNoBlockingOverlap } from '../timeBlock/timeBlock.service';
+import { loadColorContext, resolveItemColor } from '../item/itemColor';
 
 // One occurrence assembled for the calendar feed: the item context, the merge
 // state (virtual vs materialized) and the current user's placements.
 export interface OccurrenceView {
   item: Item;
-  projectColor: string | null;
+  resolvedColor: string; // full cascade: item.color -> project -> first category -> default
   idItemOccurrence: number | null;
   occurrenceDate: Date | null;
   status: OccurrenceStatus;
@@ -49,13 +49,13 @@ export interface MovedOccurrence {
 
 const buildView = (
   definition: Item,
-  projectColor: string | null,
+  resolvedColor: string,
   occurrence: ItemOccurrence,
   blocksByOccurrence: Map<number, TimeBlock[]>,
   logsByOccurrence: Map<number, TimeLog[]>,
 ): OccurrenceView => ({
   item: definition,
-  projectColor,
+  resolvedColor,
   idItemOccurrence: occurrence.idItemOccurrence,
   occurrenceDate: occurrence.occurrenceDate,
   status: occurrence.status,
@@ -229,9 +229,8 @@ export const scheduleOccurrence = (
     });
 
     const [row] = await transaction
-      .select({ item, projectColor: project.color })
+      .select({ item })
       .from(item)
-      .leftJoin(project, eq(item.projectId, project.idProject))
       .where(eq(item.idItem, definition.idItem))
       .limit(1);
     const [fresh] = await transaction
@@ -244,9 +243,10 @@ export const scheduleOccurrence = (
       .from(timeBlock)
       .where(and(eq(timeBlock.itemOccurrenceId, occurrence.idItemOccurrence), eq(timeBlock.userId, userId)));
 
+    const colorContext = await loadColorContext(definition.workspaceId);
     return {
       item: row.item,
-      projectColor: row.projectColor,
+      resolvedColor: resolveItemColor(row.item, colorContext),
       idItemOccurrence: fresh.idItemOccurrence,
       occurrenceDate: fresh.occurrenceDate,
       status: fresh.status,
@@ -352,14 +352,15 @@ export const listReminders = async (workspaceId: number, userId: number, now: Da
       title: item.title,
       rrule: item.rrule,
       color: item.color,
-      projectColor: project.color,
+      projectId: item.projectId,
       blockStart: timeBlock.timeStart,
     })
     .from(itemOccurrence)
     .innerJoin(item, eq(itemOccurrence.itemId, item.idItem))
-    .leftJoin(project, eq(item.projectId, project.idProject))
     .leftJoin(timeBlock, and(eq(timeBlock.itemOccurrenceId, itemOccurrence.idItemOccurrence), eq(timeBlock.userId, userId)))
     .where(and(eq(item.workspaceId, workspaceId), eq(item.type, 'task'), eq(itemOccurrence.status, 'todo')));
+
+  const colorContext = await loadColorContext(workspaceId);
 
   // Collapse the occurrence × block rows to one candidate each, keeping the LATEST
   // block start (a recurring occurrence's real planned moment).
@@ -368,7 +369,7 @@ export const listReminders = async (workspaceId: number, userId: number, now: Da
     title: string;
     rrule: string | null;
     color: string | null;
-    projectColor: string | null;
+    projectId: number | null;
     latestBlockStart: Date | null;
   }
   const byOccurrence = new Map<number, Candidate>();
@@ -380,7 +381,7 @@ export const listReminders = async (workspaceId: number, userId: number, now: Da
         title: row.title,
         rrule: row.rrule,
         color: row.color,
-        projectColor: row.projectColor,
+        projectId: row.projectId,
         latestBlockStart: null,
       };
       byOccurrence.set(row.occurrence.idItemOccurrence, candidate);
@@ -401,7 +402,10 @@ export const listReminders = async (workspaceId: number, userId: number, now: Da
       idItemOccurrence: occurrence.idItemOccurrence,
       itemId: occurrence.itemId,
       title: candidate.title,
-      resolvedColor: resolveColor(candidate.color, candidate.projectColor),
+      resolvedColor: resolveItemColor(
+        { idItem: occurrence.itemId, color: candidate.color, projectId: candidate.projectId },
+        colorContext,
+      ),
       occurrenceDate: occurrence.occurrenceDate,
       dueDate: occurrence.dueDate,
       effectiveDate: effective,
@@ -418,7 +422,7 @@ export const listReminders = async (workspaceId: number, userId: number, now: Da
 
 export interface ItemContext {
   item: Item;
-  projectColor: string | null;
+  resolvedColor: string; // full cascade, precomputed (guide §7)
 }
 
 // PURE assembly of the window feed (no DB) — extracted so the subtle merge /
@@ -447,7 +451,7 @@ export const assembleWindow = (
   const emitted = new Set<number>();
 
   // Recurrent series: expand the window and overlay materialized rows.
-  for (const { item: definition, projectColor } of definitions) {
+  for (const { item: definition, resolvedColor } of definitions) {
     if (definition.rrule === null || definition.recurrenceStart === null) {
       continue;
     }
@@ -455,11 +459,11 @@ export const assembleWindow = (
     for (const entry of merged) {
       if (entry.materialized) {
         emitted.add(entry.materialized.idItemOccurrence);
-        views.push(buildView(definition, projectColor, entry.materialized, blocksByOccurrence, logsByOccurrence));
+        views.push(buildView(definition, resolvedColor, entry.materialized, blocksByOccurrence, logsByOccurrence));
       } else {
         views.push({
           item: definition,
-          projectColor,
+          resolvedColor,
           idItemOccurrence: null,
           occurrenceDate: entry.occurrenceDate,
           status: 'todo',
@@ -482,7 +486,7 @@ export const assembleWindow = (
       continue;
     }
     emitted.add(idItemOccurrence);
-    views.push(buildView(context.item, context.projectColor, occurrence, blocksByOccurrence, logsByOccurrence));
+    views.push(buildView(context.item, context.resolvedColor, occurrence, blocksByOccurrence, logsByOccurrence));
   }
 
   return views;
@@ -496,12 +500,15 @@ export const getWindowOccurrences = async (
 ): Promise<OccurrenceView[]> => {
   await runReminderMaintenance(workspaceId, userId, new Date());
 
-  // Item definitions (+ project color for the cascade).
-  const definitions = await db
-    .select({ item, projectColor: project.color })
-    .from(item)
-    .leftJoin(project, eq(item.projectId, project.idProject))
-    .where(eq(item.workspaceId, workspaceId));
+  // Item definitions (+ fully-resolved color for the cascade: item -> project -> first category -> default).
+  const [definitionRows, colorContext] = await Promise.all([
+    db.select({ item }).from(item).where(eq(item.workspaceId, workspaceId)),
+    loadColorContext(workspaceId),
+  ]);
+  const definitions: ItemContext[] = definitionRows.map((row) => ({
+    item: row.item,
+    resolvedColor: resolveItemColor(row.item, colorContext),
+  }));
 
   // Materialized occurrences whose recurrence slot falls inside the window.
   const windowOccurrences = await db

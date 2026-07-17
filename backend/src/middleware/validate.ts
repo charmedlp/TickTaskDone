@@ -6,7 +6,8 @@ export const validateBody =
   (request, response, next) => {
     const result = schema.safeParse(request.body);
     if (!result.success) {
-      return response.status(400).json({ error: 'Validation failed', details: result.error.issues });
+      // Stable code + the Zod issues so the frontend can derive per-field messages.
+      return response.status(400).json({ error: 'VALIDATION_FAILED', details: result.error.issues });
     }
     request.body = result.data;
     next();

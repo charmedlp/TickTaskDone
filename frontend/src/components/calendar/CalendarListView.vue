@@ -3,6 +3,9 @@ import { computed, ref, watch } from 'vue';
 import { startOfDay } from '@/lib/datetime';
 import { displayStart, type CalendarBlock } from '@/lib/renderables';
 import { formatFullDay, formatTime } from '@/lib/format';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   days: Date[];
@@ -92,7 +95,7 @@ const startLongPress = (event: PointerEvent, block: CalendarBlock): void => {
   <div class="list">
     <div class="controls">
       <div class="page-sizes">
-        <span>Show</span>
+        <span>{{ t('calendarGrid.show') }}</span>
         <button
           v-for="size in PAGE_SIZES"
           :key="size"
@@ -105,7 +108,7 @@ const startLongPress = (event: PointerEvent, block: CalendarBlock): void => {
       </div>
       <div class="pager">
         <span v-if="total > 0" class="range">
-          {{ rangeStart + 1 }}–{{ Math.min(rangeStart + pageSize, total) }} of {{ total }}
+          {{ t('calendarGrid.rangeOf', { start: rangeStart + 1, end: Math.min(rangeStart + pageSize, total), total }) }}
         </span>
         <button type="button" :disabled="page === 0" @click="previousPage">‹</button>
         <span class="page-of">{{ page + 1 }} / {{ pageCount }}</span>
@@ -114,7 +117,7 @@ const startLongPress = (event: PointerEvent, block: CalendarBlock): void => {
     </div>
 
     <div class="entries">
-      <p v-if="total === 0" class="empty">Nothing scheduled from this day onward.</p>
+      <p v-if="total === 0" class="empty">{{ t('calendarGrid.listEmpty') }}</p>
 
       <section v-for="group in pageGroups" :key="group.day.toISOString()" class="day-group">
         <h3 class="day-title">{{ formatFullDay(group.day) }}</h3>
@@ -133,8 +136,8 @@ const startLongPress = (event: PointerEvent, block: CalendarBlock): void => {
             @pointerdown="startLongPress($event, block)"
             @contextmenu.prevent="emit('menu', { block, x: $event.clientX, y: $event.clientY })"
           >
-            <span v-if="isOverdue(block)" class="overdue-flag" title="Overdue">⚠</span>
-            <span class="time">{{ block.allDay ? 'All day' : formatTime(block.start) }}</span>
+            <span v-if="isOverdue(block)" class="overdue-flag" :title="t('calendarGrid.overdue')">⚠</span>
+            <span class="time">{{ block.allDay ? t('calendarGrid.allDay') : formatTime(block.start) }}</span>
             <span
               v-if="block.occurrence.type === 'task'"
               class="check"

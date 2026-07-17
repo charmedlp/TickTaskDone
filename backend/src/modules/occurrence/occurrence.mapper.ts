@@ -1,4 +1,4 @@
-import { resolveColor, type OccurrenceViewDto, type ReminderDto } from '@ticktaskdone/shared';
+import type { OccurrenceViewDto, ReminderDto } from '@ticktaskdone/shared';
 import { toTimeBlockDto } from '../timeBlock/timeBlock.mapper';
 import { toTimeLogDto } from '../timeLog/timeLog.mapper';
 import type { OccurrenceView, ReminderRow } from './occurrence.service';
@@ -8,7 +8,7 @@ export const toOccurrenceViewDto = (view: OccurrenceView): OccurrenceViewDto => 
   type: view.item.type,
   title: view.item.title,
   projectId: view.item.projectId,
-  resolvedColor: resolveColor(view.item.color, view.projectColor),
+  resolvedColor: view.resolvedColor,
   estimatedMinutes: view.item.estimatedMinutes,
   timezone: view.item.timezone,
   isRecurrent: view.item.rrule !== null,

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { storeToRefs } from 'pinia';
 import type { ItemDto, ProjectDto } from '@ticktaskdone/shared';
 import { useCalendarStore, type CalendarMode } from '@/stores/calendar';
@@ -25,6 +26,7 @@ import { timerKey, type TimerSession } from '@/components/calendar/timer.types';
 import type { FormSeed, ScheduleSubmit, UpdateSubmit } from '@/components/calendar/itemForm.types';
 import type { MenuAction } from '@/components/calendar/contextMenu.types';
 
+const { t } = useI18n();
 const store = useCalendarStore();
 const { view, mode, anchor, occurrences, backlog, reminders, loading, error, toast, window: visibleWindow } = storeToRefs(store);
 
@@ -47,17 +49,17 @@ const anchorInput = computed({
   },
 });
 
-const viewOptions: { id: CalendarViewType; label: string }[] = [
-  { id: 'day', label: 'Day' },
-  { id: 'week', label: 'Week' },
-  { id: 'workWeek', label: 'Work week' },
-  { id: 'month', label: 'Month' },
-  { id: 'list', label: 'List' },
-];
-const modeOptions: { id: CalendarMode; label: string }[] = [
-  { id: 'planned', label: 'Planned' },
-  { id: 'actual', label: 'Actual' },
-];
+const viewOptions = computed<{ id: CalendarViewType; label: string }[]>(() => [
+  { id: 'day', label: t('calendar.view.day') },
+  { id: 'week', label: t('calendar.view.week') },
+  { id: 'workWeek', label: t('calendar.view.workWeek') },
+  { id: 'month', label: t('calendar.view.month') },
+  { id: 'list', label: t('calendar.view.list') },
+]);
+const modeOptions = computed<{ id: CalendarMode; label: string }[]>(() => [
+  { id: 'planned', label: t('calendar.mode.planned') },
+  { id: 'actual', label: t('calendar.mode.actual') },
+]);
 
 const gridViews: CalendarViewType[] = ['day', 'week', 'workWeek'];
 const isGridView = computed(() => gridViews.includes(view.value));
@@ -316,7 +318,7 @@ const onMenu = (payload: { block: CalendarBlock; x: number; y: number }): void =
 const openEdit = async (block: CalendarBlock): Promise<void> => {
   const item = await fetchItem(block.occurrence.itemId).catch(() => null);
   if (!item) {
-    error.value = 'Could not load the item to edit.';
+    error.value = t('calendar.loadItemFailed');
     return;
   }
   formSeed.value = {
@@ -371,7 +373,7 @@ const onReminder = async (payload: { reminder: ReminderDto }): Promise<void> => 
   const reminder = payload.reminder;
   const item = await fetchItem(reminder.itemId).catch(() => null);
   if (!item) {
-    error.value = 'Could not load the item to edit.';
+    error.value = t('calendar.loadItemFailed');
     return;
   }
   const anchorIso = reminder.dueDate ?? reminder.occurrenceDate;
@@ -403,30 +405,30 @@ const menuActions = computed<MenuAction[]>(() => {
     return [];
   }
   const occurrence = block.occurrence;
-  const actions: MenuAction[] = [{ id: 'edit', label: 'Edit…' }];
+  const actions: MenuAction[] = [{ id: 'edit', label: t('calendar.menu.edit') }];
   // Duplicate creates a PLANNED block, so it is a planned-view-only action (an actual
   // block has no timeBlock to copy from anyway).
   if (!readonly.value) {
-    actions.push({ id: 'duplicate', label: 'Duplicate' });
+    actions.push({ id: 'duplicate', label: t('calendar.menu.duplicate') });
   }
   if (occurrence.type === 'task') {
-    actions.push(occurrence.status === 'done' ? { id: 'reopen', label: 'Mark as to-do' } : { id: 'done', label: 'Mark as done' });
+    actions.push(occurrence.status === 'done' ? { id: 'reopen', label: t('calendar.menu.markTodo') } : { id: 'done', label: t('calendar.menu.markDone') });
     // Skip keeps the row (marks cancelled) — only for non-recurring; a recurring
     // instance is skipped through "Delete occurrence" below (they are equivalent).
     if (occurrence.status !== 'cancelled' && !occurrence.isRecurrent) {
-      actions.push({ id: 'skip', label: 'Skip (cancel)' });
+      actions.push({ id: 'skip', label: t('calendar.menu.skip') });
     }
   }
   if (block.timeBlockId !== null) {
-    actions.push({ id: 'unschedule', label: 'Unschedule' });
+    actions.push({ id: 'unschedule', label: t('calendar.menu.unschedule') });
   }
   // Deleting THIS occurrence is the primary destructive action; wiping the whole item
   // (all occurrences + recurrence) is separate and confirmed. A recurring instance
   // that is already cancelled is left alone (re-deleting it would just be regenerated).
   if (occurrence.idItemOccurrence !== null && !(occurrence.isRecurrent && occurrence.status === 'cancelled')) {
-    actions.push({ id: 'delete-occurrence', label: 'Delete occurrence', danger: true });
+    actions.push({ id: 'delete-occurrence', label: t('calendar.menu.deleteOccurrence'), danger: true });
   }
-  actions.push({ id: 'delete-item', label: 'Delete item…', danger: true });
+  actions.push({ id: 'delete-item', label: t('calendar.menu.deleteItem'), danger: true });
   return actions;
 });
 
@@ -475,7 +477,7 @@ const onMenuSelect = (id: string): void => {
       break;
     }
     case 'delete-item':
-      if (window.confirm('Delete the ENTIRE item — every occurrence and its recurrence? This cannot be undone.')) {
+      if (window.confirm(t('calendar.confirmDeleteItem'))) {
         store.apply(() => deleteItem(block.occurrence.itemId));
       }
       break;
@@ -532,20 +534,20 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
   <section class="calendar">
     <header class="toolbar">
       <div class="nav-group">
-        <button type="button" @click="store.step(-1)" aria-label="Previous">‹</button>
-        <button type="button" class="today" @click="store.goToToday()">Today</button>
-        <button type="button" @click="store.step(1)" aria-label="Next">›</button>
+        <button type="button" @click="store.step(-1)" :aria-label="t('calendar.previous')">‹</button>
+        <button type="button" class="today" @click="store.goToToday()">{{ t('calendar.today') }}</button>
+        <button type="button" @click="store.step(1)" :aria-label="t('calendar.next')">›</button>
       </div>
 
       <h2 class="title">{{ title }}</h2>
 
-      <input v-model="anchorInput" type="date" class="date-input" aria-label="Go to date" />
+      <input v-model="anchorInput" type="date" class="date-input" :aria-label="t('calendar.goToDate')" />
 
       <div class="spacer" />
 
-      <label class="cancelled-toggle" title="Show cancelled occurrences">
+      <label class="cancelled-toggle" :title="t('calendar.showCancelled')">
         <input v-model="showCancelled" type="checkbox" />
-        Cancelled
+        {{ t('calendar.cancelled') }}
       </label>
 
       <div class="segmented mode">
@@ -626,7 +628,7 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
              shift, and it blocks interaction so nothing is added mid-load. -->
         <div v-if="loading" class="loading-overlay">
           <span class="spinner" aria-hidden="true" />
-          <span>Loading…</span>
+          <span>{{ t('common.loading') }}</span>
         </div>
       </div>
 
@@ -669,7 +671,7 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
       <div v-if="toast" class="toast-banner" role="alert" @click="store.dismissToast()">
         <span class="toast-icon" aria-hidden="true">⚠</span>
         <span class="toast-text">{{ toast }}</span>
-        <button type="button" class="toast-close" aria-label="Dismiss">×</button>
+        <button type="button" class="toast-close" :aria-label="t('calendar.dismiss')">×</button>
       </div>
     </Transition>
   </section>

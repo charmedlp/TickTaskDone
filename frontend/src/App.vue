@@ -1,6 +1,14 @@
 <script setup lang="ts">
+import { onMounted } from 'vue';
 import { RouterView } from 'vue-router';
 import AppNav from '@/components/AppNav.vue';
+import { useUserStore } from '@/stores/user';
+
+// Load the user's saved language as soon as the app boots (overrides the best-effort
+// locale set in main.ts).
+onMounted(() => {
+  void useUserStore().load();
+});
 </script>
 
 <template>

@@ -54,7 +54,7 @@ export const assertNoBlockingOverlap = async (transaction: Transaction, check: O
     .limit(1);
 
   if (clash) {
-    throw conflict(`Blocking items can't overlap other items — this time conflicts with "${clash.title}".`);
+    throw conflict('BLOCKING_OVERLAP', { title: clash.title });
   }
 };
 
@@ -146,7 +146,7 @@ export const updateTimeBlock = async (
   const timeStart = input.timeStart ?? current.timeStart;
   const timeEnd = input.timeEnd ?? current.timeEnd;
   if (timeEnd <= timeStart) {
-    throw new AppError(400, 'timeEnd must be after timeStart.');
+    throw new AppError(400, 'TIME_END_BEFORE_START');
   }
   const isBlocking = input.isBlocking ?? current.isBlocking;
   const allDay = input.allDay ?? current.allDay;

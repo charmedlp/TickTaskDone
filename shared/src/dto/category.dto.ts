@@ -4,7 +4,7 @@ export interface CategoryDto {
   workspaceId: number;
   parentCategoryId: number | null;
   name: string;
-  color: string;
+  color: string | null; // null = inherits from the nearest colored ancestor (§7)
   createdAt: string;
   updatedAt: string;
 }

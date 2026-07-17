@@ -26,7 +26,7 @@ export const currentUser: RequestHandler = (request, _response, next) => {
       .limit(1);
 
     if (!account) {
-      throw new AppError(500, 'Development user not found. Run `npm run db:seed`.');
+      throw new AppError(500, 'DEV_USER_MISSING');
     }
 
     const memberships = await transaction

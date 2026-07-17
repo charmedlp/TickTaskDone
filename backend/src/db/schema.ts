@@ -50,6 +50,7 @@ export const user = mysqlTable('user', {
   idUser:         int('idUser').autoincrement().primaryKey(),
   email:          varchar('email', { length: 255 }).notNull().unique(),
   externalAuthId: varchar('externalAuthId', { length: 255 }).unique(),
+  locale:         mysqlEnum('locale', ['en', 'fr']).default('en').notNull(), // UI language, per-user (i18n brief §2.3)
   createdAt:      timestamp('createdAt').defaultNow().notNull(),
   updatedAt:      timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
 });
@@ -80,7 +81,7 @@ export const category = mysqlTable('category', {
   workspaceId:      int('workspaceId').notNull().references(() => workspace.idWorkspace, { onDelete: 'cascade' }),
   parentCategoryId: int('parentCategoryId').references((): AnyMySqlColumn => category.idCategory, { onDelete: 'set null' }),
   name:             varchar('name', { length: 255 }).notNull(),
-  color:            varchar('color', { length: 30 }).notNull(),
+  color:            varchar('color', { length: 30 }),
   ...audit,
 }, (t) => [
   index('category_workspace_idx').on(t.workspaceId),
@@ -92,7 +93,7 @@ export const project = mysqlTable('project', {
   workspaceId:     int('workspaceId').notNull().references(() => workspace.idWorkspace, { onDelete: 'cascade' }),
   parentProjectId: int('parentProjectId').references((): AnyMySqlColumn => project.idProject, { onDelete: 'set null' }),
   name:            varchar('name', { length: 255 }).notNull(),
-  color:           varchar('color', { length: 30 }).notNull(),
+  color:           varchar('color', { length: 30 }),
   income:          decimal('income', { precision: 10, scale: 2 }).default('0').notNull(),
   status:          mysqlEnum('status', ['active', 'onHold', 'done', 'cancelled', 'archived']).default('active').notNull(),
   ...audit,
@@ -224,6 +225,7 @@ export type TimeBlock = typeof timeBlock.$inferSelect;
 export type TimeLog = typeof timeLog.$inferSelect;
 export type Project = typeof project.$inferSelect;
 export type Category = typeof category.$inferSelect;
+export type User = typeof user.$inferSelect;
 
 // NOTE : les "relational queries" (db.query...) sont en transition vers la v1
 // de Drizzle. Les jointures via .leftJoin() fonctionnent sans configuration et

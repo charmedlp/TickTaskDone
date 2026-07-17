@@ -29,6 +29,20 @@
       "when": 1783450285086,
       "tag": "0003_optimal_lucky_pierre",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1784128051199,
+      "tag": "0004_outstanding_chameleon",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1784233304571,
+      "tag": "0005_long_viper",
+      "breakpoints": true
     }
   ]
 }

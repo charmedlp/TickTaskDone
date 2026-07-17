@@ -101,7 +101,7 @@ itemRouter.post(
       request.workspaceId,
       request.currentUser.idUser,
       parseId(request.params.idItem, 'item id'),
-      request.body.rrule,
+      request.body,
     );
     response.status(204).send();
   }),

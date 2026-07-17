@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { CategoryDto } from '@ticktaskdone/shared';
 import { createCategory, deleteCategory, listCategories, updateCategory } from '@/api/categories';
-import { ApiError } from '@/api/client';
+import { errorMessage } from '@/lib/errorMessage';
+import ColorPicker from '@/components/ColorPicker.vue';
+
+const { t } = useI18n();
 
 // The category tree editor (brief §5): create, rename, recolor, move (re-parent) and
 // delete categories. The workspace hosts one hierarchical tag tree; assignment to
@@ -23,7 +27,7 @@ const load = async (): Promise<void> => {
   try {
     categories.value = await listCategories();
   } catch (cause) {
-    error.value = cause instanceof ApiError ? cause.message : 'Failed to load categories.';
+    error.value = errorMessage(cause);
   } finally {
     loading.value = false;
   }
@@ -91,15 +95,15 @@ const run = async (operation: () => Promise<void>): Promise<void> => {
     await load();
     emit('changed');
   } catch (cause) {
-    error.value = cause instanceof ApiError ? cause.message : 'Action failed.';
+    error.value = errorMessage(cause);
   } finally {
     busy.value = false;
   }
 };
 
-const addCategory = (parentCategoryId: number | null, color: string): Promise<void> =>
+const addCategory = (parentCategoryId: number | null, color: string | null): Promise<void> =>
   run(async () => {
-    await createCategory({ parentCategoryId, name: 'New category', color });
+    await createCategory({ parentCategoryId, name: t('categories.newCategory'), color });
   });
 
 const rename = (category: CategoryDto, name: string): Promise<void> =>
@@ -111,7 +115,7 @@ const rename = (category: CategoryDto, name: string): Promise<void> =>
     await updateCategory(category.idCategory, { name: trimmed });
   });
 
-const recolor = (category: CategoryDto, color: string): Promise<void> =>
+const recolor = (category: CategoryDto, color: string | null): Promise<void> =>
   run(async () => {
     await updateCategory(category.idCategory, { color });
   });
@@ -123,7 +127,7 @@ const move = (category: CategoryDto, value: string): Promise<void> =>
 
 const remove = (category: CategoryDto): Promise<void> =>
   run(async () => {
-    if (!window.confirm(`Delete "${category.name}"? Its sub-categories move up to the top, and its tags are removed.`)) {
+    if (!window.confirm(t('categories.deleteConfirm', { name: category.name }))) {
       return;
     }
     await deleteCategory(category.idCategory);
@@ -133,25 +137,18 @@ const remove = (category: CategoryDto): Promise<void> =>
 <template>
   <div class="category-manager">
     <div class="cm-head">
-      <h2>Categories</h2>
+      <h2>{{ t('categories.title') }}</h2>
       <button type="button" class="btn small primary" :disabled="busy" @click="addCategory(null, DEFAULT_COLOR)">
-        + Category
+        {{ t('categories.addCategory') }}
       </button>
     </div>
     <p v-if="error" class="banner error">{{ error }}</p>
-    <p v-if="loading" class="muted small">Loading…</p>
-    <p v-else-if="flat.length === 0" class="muted small">No categories yet.</p>
+    <p v-if="loading" class="muted small">{{ t('common.loading') }}</p>
+    <p v-else-if="flat.length === 0" class="muted small">{{ t('categories.empty') }}</p>
 
     <ul class="cm-list">
       <li v-for="{ category, depth } in flat" :key="category.idCategory" class="cm-row" :style="{ paddingLeft: `${depth * 18}px` }">
-        <input
-          type="color"
-          class="cm-color"
-          :value="category.color"
-          :disabled="busy"
-          aria-label="Category color"
-          @change="recolor(category, ($event.target as HTMLInputElement).value)"
-        />
+        <ColorPicker :model-value="category.color" @update:model-value="recolor(category, $event)" />
         <input
           type="text"
           class="cm-name"
@@ -163,18 +160,18 @@ const remove = (category: CategoryDto): Promise<void> =>
           class="cm-parent"
           :value="category.parentCategoryId ?? ''"
           :disabled="busy"
-          aria-label="Parent category"
+          :aria-label="t('categories.parentAriaLabel')"
           @change="move(category, ($event.target as HTMLSelectElement).value)"
         >
-          <option value="">— top level —</option>
+          <option value="">{{ t('categories.topLevel') }}</option>
           <option v-for="option in parentOptions(category)" :key="option.idCategory" :value="option.idCategory">
             {{ option.name }}
           </option>
         </select>
-        <button type="button" class="btn tiny" :disabled="busy" @click="addCategory(category.idCategory, category.color)">
-          + sub
+        <button type="button" class="btn tiny" :disabled="busy" @click="addCategory(category.idCategory, null)">
+          {{ t('categories.addSub') }}
         </button>
-        <button type="button" class="btn tiny danger" :disabled="busy" title="Delete" @click="remove(category)">✕</button>
+        <button type="button" class="btn tiny danger" :disabled="busy" :title="t('common.delete')" @click="remove(category)">✕</button>
       </li>
     </ul>
   </div>
@@ -227,17 +224,6 @@ const remove = (category: CategoryDto): Promise<void> =>
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.cm-color {
-  flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: none;
-  cursor: pointer;
 }
 
 .cm-name {

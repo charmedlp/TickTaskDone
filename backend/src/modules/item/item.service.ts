@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import type { CreateItemInput, UpdateItemInput } from '@ticktaskdone/shared';
 import { db } from '../../db/db';
-import { item, itemCategory, project, type Item } from '../../db/schema';
+import { item, itemCategory, type Item } from '../../db/schema';
 import { AppError } from '../../http/errors';
 import {
   assertCategoriesInWorkspace,
@@ -9,44 +9,57 @@ import {
   categoryIdsForItem,
   replaceItemCategories,
 } from '../itemCategory/itemCategory.service';
+import { loadColorContext, resolveItemColor } from './itemColor';
 
-// An item plus the color of its (optional) project and its stored category leaves.
-export interface ItemWithProjectColor {
+// An item plus its fully-resolved display color and its stored category leaves.
+// `resolvedColor` follows the full cascade (guide §7): item.color -> effective project
+// color -> effective first-category color -> default.
+export interface ItemWithColor {
   item: Item;
-  projectColor: string | null;
+  resolvedColor: string;
   categoryIds: number[];
 }
 
-// Left join so items without a project still appear (projectColor = null).
-const selectWithProjectColor = () =>
-  db
-    .select({ item, projectColor: project.color })
-    .from(item)
-    .leftJoin(project, eq(item.projectId, project.idProject));
-
 // Every operation is scoped by workspaceId. Order follows LRCUD.
 
-export const listItems = async (workspaceId: number): Promise<ItemWithProjectColor[]> => {
-  const rows = await selectWithProjectColor().where(eq(item.workspaceId, workspaceId));
-  const byItem = await categoryIdsByItem(rows.map((row) => row.item.idItem));
-  return rows.map((row) => ({ ...row, categoryIds: byItem.get(row.item.idItem) ?? [] }));
+export const listItems = async (workspaceId: number): Promise<ItemWithColor[]> => {
+  const rows = await db.select({ item }).from(item).where(eq(item.workspaceId, workspaceId));
+  const [byItem, colorContext] = await Promise.all([
+    categoryIdsByItem(rows.map((row) => row.item.idItem)),
+    loadColorContext(workspaceId),
+  ]);
+  return rows.map((row) => ({
+    item: row.item,
+    resolvedColor: resolveItemColor(row.item, colorContext),
+    categoryIds: byItem.get(row.item.idItem) ?? [],
+  }));
 };
 
-export const readItem = async (workspaceId: number, idItem: number): Promise<ItemWithProjectColor | undefined> => {
-  const [row] = await selectWithProjectColor()
+export const readItem = async (workspaceId: number, idItem: number): Promise<ItemWithColor | undefined> => {
+  const [row] = await db
+    .select({ item })
+    .from(item)
     .where(and(eq(item.workspaceId, workspaceId), eq(item.idItem, idItem)))
     .limit(1);
-  return row ? { ...row, categoryIds: await categoryIdsForItem(row.item.idItem) } : undefined;
+  if (!row) {
+    return undefined;
+  }
+  const colorContext = await loadColorContext(workspaceId);
+  return {
+    item: row.item,
+    resolvedColor: resolveItemColor(row.item, colorContext),
+    categoryIds: await categoryIdsForItem(row.item.idItem),
+  };
 };
 
 export const createItem = async (
   workspaceId: number,
   userId: number,
   input: CreateItemInput,
-): Promise<ItemWithProjectColor> => {
+): Promise<ItemWithColor> => {
   await assertCategoriesInWorkspace(workspaceId, input.categoryIds ?? []);
 
-  return db.transaction(async (transaction) => {
+  const created = await db.transaction(async (transaction) => {
     const [{ idItem }] = await transaction
       .insert(item)
       .values({
@@ -67,14 +80,14 @@ export const createItem = async (
 
     await replaceItemCategories(transaction, userId, idItem, input.categoryIds ?? []);
 
-    const [row] = await transaction
-      .select({ item, projectColor: project.color })
-      .from(item)
-      .leftJoin(project, eq(item.projectId, project.idProject))
-      .where(eq(item.idItem, idItem))
-      .limit(1);
-    return { ...row, categoryIds: [...new Set(input.categoryIds ?? [])] };
+    const [row] = await transaction.select({ item }).from(item).where(eq(item.idItem, idItem)).limit(1);
+    return { item: row.item, categoryIds: [...new Set(input.categoryIds ?? [])] };
   });
+
+  // Resolve color AFTER commit: the cascade reads the item's category links, which are
+  // only visible to a fresh connection once the transaction has committed.
+  const colorContext = await loadColorContext(workspaceId);
+  return { ...created, resolvedColor: resolveItemColor(created.item, colorContext) };
 };
 
 export const updateItem = async (
@@ -82,12 +95,12 @@ export const updateItem = async (
   userId: number,
   idItem: number,
   input: UpdateItemInput,
-): Promise<ItemWithProjectColor | undefined> => {
+): Promise<ItemWithColor | undefined> => {
   if (input.categoryIds !== undefined) {
     await assertCategoriesInWorkspace(workspaceId, input.categoryIds);
   }
 
-  return db.transaction(async (transaction) => {
+  const updated = await db.transaction(async (transaction) => {
     const [current] = await transaction
       .select({ rrule: item.rrule, recurrenceStart: item.recurrenceStart })
       .from(item)
@@ -105,7 +118,7 @@ export const updateItem = async (
     const rrule = 'rrule' in columns ? columns.rrule : current.rrule;
     const recurrenceStart = 'recurrenceStart' in columns ? columns.recurrenceStart : current.recurrenceStart;
     if ((rrule == null) !== (recurrenceStart == null)) {
-      throw new AppError(400, 'rrule and recurrenceStart must both be set or both be null.');
+      throw new AppError(400, 'RRULE_RECURRENCE_MISMATCH');
     }
 
     await transaction
@@ -118,9 +131,8 @@ export const updateItem = async (
     }
 
     const [row] = await transaction
-      .select({ item, projectColor: project.color })
+      .select({ item })
       .from(item)
-      .leftJoin(project, eq(item.projectId, project.idProject))
       .where(and(eq(item.workspaceId, workspaceId), eq(item.idItem, idItem)))
       .limit(1);
     const finalCategoryIds =
@@ -131,9 +143,17 @@ export const updateItem = async (
               .select({ categoryId: itemCategory.categoryId })
               .from(itemCategory)
               .where(eq(itemCategory.itemId, idItem))
+              .orderBy(itemCategory.idItemCategory)
           ).map((link) => link.categoryId);
-    return { ...row, categoryIds: finalCategoryIds };
+    return { item: row.item, categoryIds: finalCategoryIds };
   });
+
+  if (!updated) {
+    return undefined;
+  }
+  // Resolve color AFTER commit so the cascade sees the final category links.
+  const colorContext = await loadColorContext(workspaceId);
+  return { ...updated, resolvedColor: resolveItemColor(updated.item, colorContext) };
 };
 
 export const deleteItem = async (workspaceId: number, idItem: number): Promise<boolean> => {

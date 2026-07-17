@@ -7,7 +7,7 @@ export type ProjectStatus = (typeof projectStatuses)[number];
 export const createProjectInput = z.object({
   parentProjectId: z.number().int().positive().nullable(),
   name: z.string().min(1).max(255),
-  color: z.string().min(1).max(30),
+  color: z.string().min(1).max(30).nullable(), // null = no own color, inherits from ancestors (§7)
   income: z.number().nonnegative().optional(),
   status: z.enum(projectStatuses).optional(),
   categoryIds: z.array(z.number().int().positive()).optional(), // stored leaves (brief §2)

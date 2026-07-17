@@ -4,7 +4,7 @@ import { z } from 'zod';
 export const createCategoryInput = z.object({
   parentCategoryId: z.number().int().positive().nullable(),
   name: z.string().min(1).max(255),
-  color: z.string().min(1).max(30),
+  color: z.string().min(1).max(30).nullable(), // null = no own color, inherits from ancestors (§7)
 });
 
 export type CreateCategoryInput = z.infer<typeof createCategoryInput>;

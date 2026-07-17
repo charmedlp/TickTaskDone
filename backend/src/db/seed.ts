@@ -5,8 +5,8 @@ import { user } from './schema';
 import { createUserWithDefaults } from '../modules/user/user.service';
 
 // Dev-only: ensures the hard-coded development user (used by the temporary
-// `currentUser` middleware) exists, along with its personal workspace and
-// default "Task List" project. Idempotent. Run with `npm run db:seed`.
+// `currentUser` middleware) exists, along with its personal workspace and owner
+// membership. Idempotent. Run with `npm run db:seed`.
 const developmentUserEmail = process.env.DEV_USER_EMAIL ?? 'dev@ticktaskdone.local';
 
 const run = async (): Promise<void> => {

@@ -7,10 +7,10 @@ import { AppError } from '../http/errors';
 export const scopeWorkspace: RequestHandler = (request, _response, next) => {
   const workspaceId = Number(request.params.workspaceId);
   if (!Number.isInteger(workspaceId) || workspaceId <= 0) {
-    return next(new AppError(400, 'Invalid workspace id.'));
+    return next(new AppError(400, 'INVALID_PARAM', { param: 'workspace id' }));
   }
   if (!request.currentUser.workspaceIds.includes(workspaceId)) {
-    return next(new AppError(404, 'Workspace not found.'));
+    return next(new AppError(404, 'NOT_FOUND', { entity: 'workspace' }));
   }
   request.workspaceId = workspaceId;
   next();
