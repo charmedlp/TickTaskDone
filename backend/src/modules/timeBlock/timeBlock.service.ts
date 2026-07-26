@@ -2,7 +2,18 @@ import { and, eq, gt, lt, ne } from 'drizzle-orm';
 import type { CreateTimeBlockInput, UpdateTimeBlockInput } from '@ticktaskdone/shared';
 import { db, type Transaction } from '../../db/db';
 import { item, itemOccurrence, timeBlock, type TimeBlock } from '../../db/schema';
+import { wallClockToInstant } from '../../domain/timezone';
 import { AppError, conflict, notFound } from '../../http/errors';
+
+// The due date a linked task tracks for a given block: a timed block → its end; an
+// all-day block (floating UTC midnight) → that day's 23:59 in the item's timezone.
+export const linkedDueDate = (timeStart: Date, timeEnd: Date, allDay: boolean, timezone: string | null): Date =>
+  allDay
+    ? wallClockToInstant(
+        { year: timeStart.getUTCFullYear(), month: timeStart.getUTCMonth() + 1, day: timeStart.getUTCDate(), hour: 23, minute: 59, second: 0 },
+        timezone ?? 'UTC',
+      )
+    : timeEnd;
 
 // A timeBlock belongs to a user (personal schedule) while its occurrence's item
 // belongs to a workspace. Every operation is therefore scoped by BOTH the current
@@ -35,6 +46,7 @@ export const assertNoBlockingOverlap = async (transaction: Transaction, check: O
     eq(item.workspaceId, check.workspaceId),
     eq(timeBlock.userId, check.userId),
     eq(timeBlock.allDay, false),
+    ne(itemOccurrence.status, 'cancelled'), // a cancelled occurrence frees its slot — it no longer blocks
     lt(timeBlock.timeStart, check.timeEnd),
     gt(timeBlock.timeEnd, check.timeStart),
   ];
@@ -165,6 +177,31 @@ export const updateTimeBlock = async (
       .update(timeBlock)
       .set({ ...input, updatedBy: userId })
       .where(and(eq(timeBlock.idTimeBlock, idTimeBlock), eq(timeBlock.userId, userId)));
+
+    // Linked due date: for a task whose dueDate tracks this block (timed → its end;
+    // all-day → the day's 23:59), follow the block to its new position. Applies to
+    // recurring occurrences too. A manual dueDate (different) or none (null) is left
+    // untouched — no re-linking later.
+    const startChanged = input.timeStart !== undefined && input.timeStart.getTime() !== current.timeStart.getTime();
+    const endChanged = input.timeEnd !== undefined && input.timeEnd.getTime() !== current.timeEnd.getTime();
+    if (startChanged || endChanged) {
+      const [owner] = await transaction
+        .select({ occurrence: itemOccurrence, type: item.type, timezone: item.timezone })
+        .from(itemOccurrence)
+        .innerJoin(item, eq(itemOccurrence.itemId, item.idItem))
+        .where(eq(itemOccurrence.idItemOccurrence, current.itemOccurrenceId))
+        .limit(1);
+      if (owner && owner.type === 'task' && owner.occurrence.dueDate !== null) {
+        const oldLinked = linkedDueDate(current.timeStart, current.timeEnd, current.allDay, owner.timezone);
+        if (owner.occurrence.dueDate.getTime() === oldLinked.getTime()) {
+          const newLinked = linkedDueDate(timeStart, timeEnd, allDay, owner.timezone);
+          await transaction
+            .update(itemOccurrence)
+            .set({ dueDate: newLinked, updatedBy: userId })
+            .where(eq(itemOccurrence.idItemOccurrence, current.itemOccurrenceId));
+        }
+      }
+    }
   });
   return readTimeBlock(workspaceId, userId, idTimeBlock);
 };

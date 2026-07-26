@@ -15,6 +15,9 @@ export interface ItemDto {
   rrule: string | null;
   recurrenceStart: string | null;
   timezone: string | null; // IANA id for wall-clock (recurrence, dueDate)
+  supersedeStaleOccurrences: boolean; // recurring: auto-cancel older undone instances (true) vs accumulate (false)
+  generatesReminder: boolean; // false = never overdue / never auto-cancelled
+  blockingByDefault: boolean; // default blocking for unplaced slots + fresh placements
   categoryIds: number[]; // the stored leaves; ancestors are deduced client-side
   createdAt: string;
   updatedAt: string;

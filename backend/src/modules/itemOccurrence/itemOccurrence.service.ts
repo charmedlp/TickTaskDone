@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import type { CreateItemOccurrenceInput, OccurrenceStatus, UpdateItemOccurrenceInput } from '@ticktaskdone/shared';
 import { db } from '../../db/db';
 import { itemOccurrence, timeBlock, type Item, type ItemOccurrence, type TimeBlock } from '../../db/schema';
-import { slotsBefore, slotsFrom } from '../../domain/recurrence';
+import { latestArrivedSlot, slotsBefore, slotsFrom } from '../../domain/recurrence';
 
 // Scoped by itemId (the parent item's workspace membership is checked upstream by
 // `loadItem`). Order follows LRCUD.
@@ -110,6 +110,10 @@ export const listItemMoments = async (
   const uniqueSorted = (values: number[]): number[] => [...new Set(values)].sort((left, right) => left - right);
 
   const now = new Date();
+  // Single-active-instance supersession (same rule as the calendar feed): a VIRTUAL slot
+  // strictly before the latest arrived slot is a stale, superseded occurrence → cancelled.
+  const supersedeBefore =
+    item.type === 'task' && item.supersedeStaleOccurrences && item.generatesReminder ? latestArrivedSlot(item, now) : null;
   let pageMs: number[];
   if (page.direction === 'prev' && page.cursor !== null) {
     const cursorMs = page.cursor.getTime();
@@ -156,9 +160,18 @@ export const listItemMoments = async (
 
   const moments: ItemMoment[] = pageMs.map((ts) => {
     const materialized = materializedByTs.get(ts);
-    return materialized
-      ? toMaterializedMoment(materialized)
-      : { idItemOccurrence: null, occurrenceDate: new Date(ts), status: 'todo', dueDate: null, timeBlocks: [], materialized: false };
+    if (materialized) {
+      return toMaterializedMoment(materialized);
+    }
+    const superseded = supersedeBefore !== null && ts < supersedeBefore.getTime();
+    return {
+      idItemOccurrence: null,
+      occurrenceDate: new Date(ts),
+      status: superseded ? 'cancelled' : 'todo',
+      dueDate: null,
+      timeBlocks: [],
+      materialized: false,
+    };
   });
 
   // Arrows reflect the actual stream: live only when a real occurrence exists past the edge.

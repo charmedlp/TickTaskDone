@@ -19,6 +19,7 @@ export interface OccurrenceViewDto {
   estimatedMinutes: number | null;
   timezone: string | null; // the item's IANA id (for virtual-slot / dueDate wall-clock)
   isRecurrent: boolean; // has an rrule
+  blockingByDefault: boolean; // the item default — drives a virtual slot's blocking preview
   idItemOccurrence: number | null;
   occurrenceDate: string | null;
   status: OccurrenceStatus;

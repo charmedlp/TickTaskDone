@@ -8,17 +8,17 @@ import {
   type ItemType,
   type ProjectDto,
 } from '@ticktaskdone/shared';
-import { browserTimezone, fromDateTimeInputValue, toDateTimeInputValue } from '@/lib/datetime';
 import {
-  buildRrule,
-  emptyRecurrence,
-  WEEKDAYS,
-  type Frequency,
-  type RecurrenceModel,
-  type Weekday,
-} from '@/lib/recurrenceModel';
-import CategoryPicker from './CategoryPicker.vue';
-import ColorPicker from '@/components/ColorPicker.vue';
+  browserTimezone,
+  fromDateInputValue,
+  fromDateTimeInputValue,
+  toDateInputValue,
+  toDateTimeInputValue,
+  toDateTimeInputValueUTC,
+} from '@/lib/datetime';
+import { buildRrule, emptyRecurrence, type RecurrenceModel } from '@/lib/recurrenceModel';
+import ItemCoreFields from '@/components/projects/ItemCoreFields.vue';
+import RecurrenceEditor from '@/components/projects/RecurrenceEditor.vue';
 import type { FormSeed, ScheduleSubmit, UpdateSubmit } from './itemForm.types';
 
 const props = defineProps<{ seed: FormSeed | null; projects: ProjectDto[]; items: ItemDto[] }>();
@@ -31,16 +31,13 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-const DEFAULT_COLOR = '#3366cc';
-
 const form = reactive({
   mode: 'create' as 'create' | 'edit',
   type: 'task' as ItemType,
   title: '',
   projectId: null as number | null,
   description: '',
-  useColor: false,
-  color: DEFAULT_COLOR,
+  color: null as string | null, // null = no custom color (follows the cascade)
   estimatedMinutes: null as number | null,
   dueDate: '' as string,
   isBlocking: true, // items reserve their slot (block) by default
@@ -48,6 +45,8 @@ const form = reactive({
   timeStart: '' as string,
   timeEnd: '' as string,
   recurrence: emptyRecurrence() as RecurrenceModel,
+  supersedeStaleOccurrences: true, // recurring tasks: keep one active instance (vs accumulate)
+  generatesReminder: true, // task surfaces overdue reminders (and is auto-cancellable)
   categoryIds: [] as number[],
 });
 // 'new' creates a brand-new item; a number schedules that existing item instead.
@@ -56,6 +55,7 @@ const idItem = ref<number | null>(null);
 const idItemOccurrence = ref<number | null>(null);
 const timeBlockId = ref<number | null>(null);
 const errorMessage = ref<string | null>(null);
+const linkDueToBlock = ref(true); // due date tracks the block end until the user unlinks it
 
 watch(
   () => props.seed,
@@ -69,15 +69,25 @@ watch(
     form.title = seed.title;
     form.projectId = seed.projectId;
     form.description = seed.description ?? '';
-    form.useColor = seed.color !== null;
-    form.color = seed.color ?? DEFAULT_COLOR;
+    form.color = seed.color;
     form.estimatedMinutes = seed.estimatedMinutes;
     form.dueDate = seed.dueDate ? toDateTimeInputValue(seed.dueDate) : '';
+    // Linked when there is no due date yet (fresh) or it already equals the tracked
+    // moment (timed → block end; all-day → the day's 23:59). The all-day day is read
+    // from the UTC components (floating block), matching how it is displayed below.
+    const expectedDue = seed.allDay
+      ? `${toDateTimeInputValueUTC(seed.timeStart).slice(0, 10)}T23:59`
+      : toDateTimeInputValue(seed.timeEnd);
+    linkDueToBlock.value = seed.dueDate === null || toDateTimeInputValue(seed.dueDate) === expectedDue;
     form.isBlocking = seed.isBlocking;
     form.allDay = seed.allDay;
-    form.timeStart = toDateTimeInputValue(seed.timeStart);
-    form.timeEnd = toDateTimeInputValue(seed.timeEnd);
+    // All-day blocks are floating (UTC midnight): read their day from the UTC components
+    // so it doesn't slip a day in a non-UTC timezone. Timed blocks stay local.
+    form.timeStart = seed.allDay ? toDateTimeInputValueUTC(seed.timeStart) : toDateTimeInputValue(seed.timeStart);
+    form.timeEnd = seed.allDay ? toDateTimeInputValueUTC(seed.timeEnd) : toDateTimeInputValue(seed.timeEnd);
     form.recurrence = { ...seed.recurrence };
+    form.supersedeStaleOccurrences = seed.supersedeStaleOccurrences;
+    form.generatesReminder = seed.generatesReminder;
     form.categoryIds = [...seed.categoryIds];
     idItem.value = seed.idItem ?? null;
     idItemOccurrence.value = seed.idItemOccurrence ?? null;
@@ -86,15 +96,6 @@ watch(
   },
   { immediate: true },
 );
-
-const frequencies: Frequency[] = ['none', 'daily', 'weekly', 'monthly'];
-
-// Toggle a weekday for a weekly BYDAY rule (e.g. Tue+Sat, or Mon–Fri).
-const toggleWeekday = (day: Weekday): void => {
-  form.recurrence.weekdays = form.recurrence.weekdays.includes(day)
-    ? form.recurrence.weekdays.filter((value) => value !== day)
-    : [...form.recurrence.weekdays, day];
-};
 
 // Switching to Event clears any picked task: events are always new (unique or
 // fixed recurrence), never scheduled as another instance of an existing one.
@@ -113,14 +114,19 @@ const selectedItem = computed<ItemDto | null>(() =>
 // item, otherwise the selected existing item's.
 const effectiveType = computed<ItemType>(() => (isNew.value ? form.type : (selectedItem.value?.type ?? 'task')));
 
-// The existing-item picker lists project TASKS ONLY, grouped by project. Ephemeral
-// tasks (no project) are excluded: an ephemeral task is single-use by definition.
+// The existing-item picker lists TASKS grouped by project, plus the virtual "Task List"
+// (project-less tasks) first — those are schedulable too.
 const tasks = computed(() => props.items.filter((item) => item.type === 'task'));
-const projectGroups = computed(() =>
-  props.projects
+const projectGroups = computed(() => {
+  const groups = props.projects
     .map((project) => ({ name: project.name, tasks: tasks.value.filter((task) => task.projectId === project.idProject) }))
-    .filter((group) => group.tasks.length > 0),
-);
+    .filter((group) => group.tasks.length > 0);
+  const taskListTasks = tasks.value.filter((task) => task.projectId === null);
+  if (taskListTasks.length > 0) {
+    groups.unshift({ name: t('backlog.taskListLabel'), tasks: taskListTasks });
+  }
+  return groups;
+});
 
 // The picker appears only when creating a task; item detail fields hide only when
 // scheduling an existing task.
@@ -129,24 +135,58 @@ const showItemDetail = computed(() => form.mode === 'edit' || isNew.value);
 // Times are editable when creating, and when editing an item that has a placed block.
 const showTimeFields = computed(() => form.mode === 'create' || (form.mode === 'edit' && timeBlockId.value !== null));
 
-// --- Category selection ------------------------------------------------------
-// Assigning a category NEVER touches item.color (guide §7): the category feeds the
-// render cascade dynamically, after the project, so there is no copy/side effect
-// here. "Custom color" stays a purely deliberate user choice (item.color !== null).
-const onCategoriesChange = (categoryIds: number[]): void => {
-  form.categoryIds = categoryIds;
-};
+// Due date linked to the block's end: while linked the field is read-only and tracks
+// the end; unlinking frees it for a manual deadline. The link is inferred (no stored
+// flag) — the due date equals the block end iff they are linked.
+const canLinkDue = computed(() => effectiveType.value === 'task' && showTimeFields.value);
+// The moment a linked due date tracks: a timed block → its end; an all-day block → the
+// block day's 23:59 (all-day is floating, so we take the day from the start field).
+const linkedDueString = (): string => (form.allDay ? `${form.timeStart.slice(0, 10)}T23:59` : form.timeEnd);
+
+// All-day date pickers (no time). They are a DATE-only view over the internal
+// datetime-local strings, so the write path is untouched. The end is shown INCLUSIVELY
+// (a one-day event reads its own day), while it is stored exclusively (next midnight).
+const startDate = computed<string>({
+  get: () => form.timeStart.slice(0, 10),
+  set: (value) => {
+    form.timeStart = `${value}T00:00`;
+  },
+});
+const endDate = computed<string>({
+  get: () => {
+    const day = fromDateTimeInputValue(form.timeEnd);
+    day.setDate(day.getDate() - 1); // exclusive end → inclusive last day
+    return toDateInputValue(day);
+  },
+  set: (value) => {
+    const day = fromDateInputValue(value);
+    day.setDate(day.getDate() + 1); // inclusive last day → exclusive end
+    form.timeEnd = toDateTimeInputValue(day);
+  },
+});
+watch(
+  [() => form.timeStart, () => form.timeEnd, () => form.allDay, linkDueToBlock, canLinkDue],
+  () => {
+    if (canLinkDue.value && linkDueToBlock.value) {
+      form.dueDate = linkedDueString(); // datetime-local strings
+    }
+  },
+  { immediate: true },
+);
 
 const buildItemFields = (recurring: boolean, recurrenceStart: Date | null) => ({
   type: form.type,
   projectId: form.projectId,
   title: form.title.trim(),
   description: form.description.trim() === '' ? null : form.description.trim(),
-  color: form.useColor ? form.color : null,
+  color: form.color,
   estimatedMinutes: form.type === 'task' ? form.estimatedMinutes : null,
   rrule: recurring ? buildRrule(form.recurrence) : null,
   recurrenceStart,
   timezone: browserTimezone(), // the item lives in the creator's timezone (recurrence, dueDate)
+  supersedeStaleOccurrences: form.supersedeStaleOccurrences,
+  generatesReminder: form.type === 'task' ? form.generatesReminder : true,
+  blockingByDefault: form.isBlocking, // the item's default blocking (drives virtual slots + fresh placements)
   categoryIds: [...form.categoryIds], // stored leaves; part of the item input (brief §8)
 });
 
@@ -257,94 +297,53 @@ const submit = (): void => {
 
       <!-- Item detail fields (hidden when scheduling an existing task) -->
       <template v-if="showItemDetail">
-        <label>
-          {{ t('itemForm.title') }}
-          <input v-model="form.title" type="text" maxlength="255" required />
-        </label>
-
-        <label>
-          {{ t('itemForm.project') }}
-          <select v-model="form.projectId">
-            <option :value="null">{{ t('itemForm.projectNone') }}</option>
-            <option v-for="project in projects" :key="project.idProject" :value="project.idProject">
-              {{ project.name }}
-            </option>
-          </select>
-        </label>
-
-        <label>
-          {{ t('itemForm.description') }}
-          <textarea v-model="form.description" rows="2" />
-        </label>
-
-        <div class="row">
-          <label class="inline">
-            <input v-model="form.useColor" type="checkbox" />
-            {{ t('itemForm.customColor') }}
-          </label>
-          <ColorPicker v-if="form.useColor" v-model="form.color" />
-          <span v-else class="hint">{{ t('itemForm.colorHint') }}</span>
-        </div>
-
-        <label v-if="form.type === 'task'">
-          {{ t('itemForm.estimatedMinutes') }}
-          <input v-model.number="form.estimatedMinutes" type="number" min="1" />
-        </label>
+        <ItemCoreFields
+          v-model:title="form.title"
+          v-model:project-id="form.projectId"
+          v-model:description="form.description"
+          v-model:category-ids="form.categoryIds"
+          v-model:estimated-minutes="form.estimatedMinutes"
+          v-model:color="form.color"
+          v-model:generates-reminder="form.generatesReminder"
+          :projects="projects"
+          :show-estimate="form.type === 'task'"
+          :show-reminder="form.type === 'task'"
+        />
 
         <fieldset class="recurrence">
           <legend>{{ t('itemForm.recurrence') }}</legend>
-          <select v-model="form.recurrence.freq">
-            <option v-for="frequency in frequencies" :key="frequency" :value="frequency">
-              {{ t('itemForm.freq.' + frequency) }}
-            </option>
-          </select>
-          <template v-if="form.recurrence.freq !== 'none'">
-            <label class="inline">
-              {{ t('itemForm.every') }}
-              <input v-model.number="form.recurrence.interval" type="number" min="1" class="narrow" />
-            </label>
-            <div v-if="form.recurrence.freq === 'weekly'" class="rc-weekdays">
-              <button
-                v-for="day in WEEKDAYS"
-                :key="day.value"
-                type="button"
-                class="rc-weekday"
-                :class="{ on: form.recurrence.weekdays.includes(day.value) }"
-                @click="toggleWeekday(day.value)"
-              >
-                {{ t('weekday.' + day.value) }}
-              </button>
-            </div>
-            <label class="inline">
-              {{ t('itemForm.for') }}
-              <input v-model.number="form.recurrence.count" type="number" min="1" class="narrow" placeholder="∞" />
-              {{ t('itemForm.times') }}
-            </label>
-          </template>
+          <RecurrenceEditor
+            :model-value="form.recurrence"
+            v-model:supersede-stale="form.supersedeStaleOccurrences"
+            :show-supersede="form.type === 'task' && form.generatesReminder"
+            @update:model-value="form.recurrence = $event"
+          />
         </fieldset>
-
-        <div class="field">
-          <span class="field-label">{{ t('itemForm.categories') }}</span>
-          <CategoryPicker :model-value="form.categoryIds" @update:model-value="onCategoriesChange" />
-        </div>
       </template>
 
-      <!-- Occurrence / timeBlock fields (always shown) -->
+      <!-- Occurrence / timeBlock fields (always shown). All-day drops the time part. -->
       <div v-if="showTimeFields" class="row">
         <label>
           {{ t('itemForm.start') }}
-          <input v-model="form.timeStart" type="datetime-local" required />
+          <input v-if="form.allDay" v-model="startDate" type="date" required />
+          <input v-else v-model="form.timeStart" type="datetime-local" required />
         </label>
         <label>
           {{ t('itemForm.end') }}
-          <input v-model="form.timeEnd" type="datetime-local" required />
+          <input v-if="form.allDay" v-model="endDate" type="date" required />
+          <input v-else v-model="form.timeEnd" type="datetime-local" required />
         </label>
       </div>
 
-      <label v-if="effectiveType === 'task'">
-        {{ t('itemForm.dueDate') }}
-        <input v-model="form.dueDate" type="datetime-local" />
-      </label>
+      <div v-if="effectiveType === 'task'" class="due-field">
+        <label>
+          {{ t('itemForm.dueDate') }}
+          <input v-model="form.dueDate" type="datetime-local" :disabled="canLinkDue && linkDueToBlock" />
+        </label>
+        <label v-if="canLinkDue" class="inline link-due">
+          <input v-model="linkDueToBlock" type="checkbox" /> {{ t('itemForm.linkDueToBlock') }}
+        </label>
+      </div>
 
       <div class="row">
         <label class="inline"><input v-model="form.allDay" type="checkbox" /> {{ t('itemForm.allDay') }}</label>
@@ -434,6 +433,21 @@ input[type='checkbox'] {
 
 .row > label {
   flex: 1;
+}
+
+.due-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.due-field .link-due {
+  font-weight: 400;
+}
+
+.due-field input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .hint {

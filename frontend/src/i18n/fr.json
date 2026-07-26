@@ -14,8 +14,20 @@
     "edit": "Modifier",
     "add": "Ajouter",
     "close": "Fermer",
-    "loading": "Chargement…",
-    "actionFailed": "L’action a échoué."
+    "loading": "Chargement…"
+  },
+  "recurrence": {
+    "every": "tous les",
+    "for": "pendant",
+    "times": "fois",
+    "supersede": "Une seule instance active",
+    "supersedeHint": "Garder une seule instance active : les occurrences passées non faites sont annulées automatiquement. Décochez pour accumuler chaque instance manquée comme tâche distincte.",
+    "freq": {
+      "none": "Ne se répète pas",
+      "daily": "Quotidien",
+      "weekly": "Hebdomadaire",
+      "monthly": "Mensuel"
+    }
   },
   "weekday": {
     "MO": "Lu",
@@ -28,9 +40,11 @@
   },
   "backlog": {
     "title": "En attente",
+    "recurringTitle": "Récurrentes",
     "taskListLabel": "Liste de tâches",
     "project": "Projet",
     "empty": "Aucune tâche non planifiée. Glissez-en pour les planifier.",
+    "recurringEmpty": "Aucune tâche récurrente absente de cette vue.",
     "show": "Afficher la liste en attente",
     "hide": "Masquer la liste en attente",
     "due": "Échéance {date}"
@@ -61,6 +75,7 @@
       "duplicate": "Dupliquer",
       "markTodo": "Marquer à faire",
       "markDone": "Marquer comme fait",
+      "restore": "Rétablir",
       "skip": "Passer (annuler)",
       "unschedule": "Déplanifier",
       "deleteOccurrence": "Supprimer l’occurrence",
@@ -75,44 +90,29 @@
     "newTask": "Nouvelle tâche…",
     "title": "Titre",
     "project": "Projet",
-    "projectNone": "Aucun (éphémère)",
+    "projectNone": "Aucun (Liste de tâches)",
     "description": "Description",
     "customColor": "Couleur personnalisée",
     "colorHint": "Utilise la couleur du projet / par défaut",
     "estimatedMinutes": "Minutes estimées",
     "categories": "Catégories",
     "recurrence": "Récurrence",
-    "every": "tous les",
-    "for": "pendant",
-    "times": "fois",
     "start": "Début",
     "end": "Fin",
     "dueDate": "Échéance",
+    "generatesReminder": "Générer des rappels en retard",
+    "linkDueToBlock": "Lier à la fin du bloc",
     "allDay": "Toute la journée",
     "blocking": "Bloquant",
     "create": "Créer",
     "endAfterStart": "La fin doit être après le début.",
-    "invalidValues": "Valeurs invalides.",
-    "freq": {
-      "none": "Ne se répète pas",
-      "daily": "Quotidien",
-      "weekly": "Hebdomadaire",
-      "monthly": "Mensuel"
-    }
+    "invalidValues": "Valeurs invalides."
   },
   "taskDetail": {
-    "taskTitle": "Titre de la tâche",
-    "description": "Description",
-    "categories": "Catégories",
-    "estimateMin": "Estimation (min)",
     "dueDate": "Échéance",
     "recurring": "Récurrente",
     "done": "Fait",
     "recurrence": "Récurrence",
-    "repeatEvery": "Répéter tous les",
-    "freqOff": "— désactivé —",
-    "for": "pendant",
-    "times": "fois",
     "starting": "à partir de",
     "makeRecurring": "Rendre récurrente",
     "updateRecurrence": "Mettre à jour la récurrence",
@@ -131,11 +131,6 @@
     "endAfterStart": "La fin doit être après le début.",
     "confirmSplit": "Cette tâche est répartie en {count} blocs. Ils deviendront des instances indépendantes de la récurrence. Continuer ?",
     "confirmStop": "Cette tâche récurrente sera scindée en {count} tâche(s) distincte(s) ; les occurrences non planifiées et non faites seront perdues. Continuer ?",
-    "freqUnit": {
-      "daily": "jour(s)",
-      "weekly": "semaine(s)",
-      "monthly": "mois"
-    },
     "status": {
       "todo": "à faire",
       "done": "fait",
@@ -144,7 +139,6 @@
   },
   "projects": {
     "addProject": "+ Projet",
-    "addTask": "+ Ajouter une tâche",
     "addTaskShort": "+ Tâche",
     "addSubproject": "+ Sous-projet",
     "categoriesManagement": "Gestion des catégories",
@@ -171,13 +165,9 @@
     "doneStat": "{pct} % faites",
     "loggedStat": "{pct} % consigné",
     "tasks": "Tâches",
-    "noTasks": "Aucune tâche.",
-    "noEphemeralTasks": "Aucune tâche éphémère.",
     "markTodo": "Marquer à faire",
     "markDone": "Marquer comme fait",
     "recurring": "Récurrente",
-    "planned": "Planifiée",
-    "backlog": "En attente",
     "back": "Retour",
     "archive": "Archiver",
     "statusActive": "Active",
@@ -185,6 +175,48 @@
     "statusDone": "Terminé",
     "statusCancelled": "Annulé",
     "statusArchived": "Archivé"
+  },
+  "projectSelect": {
+    "filter": "Tapez pour filtrer…"
+  },
+  "projectGrid": {
+    "colName": "Sous-projet",
+    "colStatus": "Statut",
+    "colCategories": "Catégories",
+    "colColor": "Couleur",
+    "newPlaceholder": "Nouveau sous-projet — saisissez puis Entrée",
+    "open": "Ouvrir le sous-projet"
+  },
+  "grid": {
+    "colName": "Tâche",
+    "colCategories": "Catégories",
+    "colEstimate": "Est. (min)",
+    "colDue": "Échéance",
+    "colSubproject": "Sous-projet",
+    "colDone": "Fait",
+    "newTaskPlaceholder": "Nouvelle tâche — saisissez puis Entrée",
+    "ownTasks": "Tâches directes",
+    "open": "Ouvrir le détail",
+    "groupByLabel": "Grouper par",
+    "sortByLabel": "Trier par",
+    "ascending": "Croissant",
+    "descending": "Décroissant",
+    "noDate": "Sans date",
+    "uncategorized": "Sans catégorie",
+    "groupBy": {
+      "subproject": "Sous-projet",
+      "date": "Date",
+      "week": "Semaine",
+      "month": "Mois",
+      "category": "Catégorie",
+      "none": "Aucun groupe"
+    },
+    "sortBy": {
+      "alpha": "Ordre alphabétique",
+      "added": "Date d'ajout",
+      "estimate": "Estimé de temps",
+      "due": "Échéance"
+    }
   },
   "categories": {
     "title": "Catégories",
@@ -198,6 +230,7 @@
   },
   "categoryPicker": {
     "none": "Aucune catégorie",
+    "filter": "Tapez pour filtrer…",
     "empty": "Aucune catégorie pour l’instant.",
     "inherited": "héritée",
     "addChildTitle": "Ajouter une sous-catégorie",
@@ -216,8 +249,8 @@
   "calendarGrid": {
     "overdue": "En retard",
     "reminderDragHint": "Glissez sur le calendrier pour replanifier, ou cliquez pour ouvrir",
-    "overdueSince": "échéance {since}",
-    "reschedule": "Replanifier",
+    "overdueSince": "({since})",
+    "reschedule": "Replan.",
     "allDay": "Toute la journée",
     "show": "Afficher",
     "rangeOf": "{start}–{end} sur {total}",

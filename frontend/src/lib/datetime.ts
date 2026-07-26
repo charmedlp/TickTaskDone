@@ -95,6 +95,12 @@ export const toDateTimeInputValue = (date: Date): string =>
 
 export const fromDateTimeInputValue = (value: string): Date => new Date(value); // parsed as local
 
+// All-day / floating blocks store their date at UTC midnight (no timezone). Their day
+// must be READ from the UTC components — reading it in local time shifts it across the
+// date line in a non-UTC zone. Time is always 00:00 (all-day carries no meaningful time).
+export const toDateTimeInputValueUTC = (date: Date): string =>
+  `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}T00:00`;
+
 // <input type="date"> helpers (local, like the datetime ones).
 export const toDateInputValue = (date: Date): string =>
   `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;

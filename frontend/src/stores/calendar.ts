@@ -2,7 +2,7 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type { BacklogTaskDto, OccurrenceViewDto, ReminderDto } from '@ticktaskdone/shared';
 import { fetchOccurrences } from '@/api/occurrences';
-import { fetchBacklog } from '@/api/backlog';
+import { fetchBacklog, fetchRecurringUnplanned } from '@/api/backlog';
 import { fetchReminders } from '@/api/reminders';
 import { errorMessage } from '@/lib/errorMessage';
 import { type CalendarViewType, stepAnchor, windowForView } from '@/lib/datetime';
@@ -19,6 +19,7 @@ export const useCalendarStore = defineStore('calendar', () => {
 
   const occurrences = ref<OccurrenceViewDto[]>([]);
   const backlog = ref<BacklogTaskDto[]>([]);
+  const recurringUnplanned = ref<BacklogTaskDto[]>([]); // recurring tasks absent from the visible window
   const reminders = ref<ReminderDto[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null); // persistent (load failures) — top banner
@@ -42,11 +43,17 @@ export const useCalendarStore = defineStore('calendar', () => {
       loading.value = false;
     }
     await loadReminders(); // window-independent; a soft failure must not break the feed
+    await loadRecurringUnplanned(); // window-dependent second tray
   };
 
   // Overdue reminders ("now"-based, not window-scoped). A failure is non-fatal.
   const loadReminders = async (): Promise<void> => {
     reminders.value = await fetchReminders().catch(() => []);
+  };
+
+  // Recurring tasks with no occurrence in the visible window (soft failure = empty).
+  const loadRecurringUnplanned = async (): Promise<void> => {
+    recurringUnplanned.value = await fetchRecurringUnplanned(window.value.from, window.value.to).catch(() => []);
   };
 
   const setView = (next: CalendarViewType): void => {
@@ -115,6 +122,7 @@ export const useCalendarStore = defineStore('calendar', () => {
     mode,
     occurrences,
     backlog,
+    recurringUnplanned,
     reminders,
     loading,
     error,

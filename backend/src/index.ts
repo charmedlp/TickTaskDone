@@ -43,7 +43,7 @@ app.use('/me', currentUser, userRouter);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-const port = Number(process.env.PORT ?? 3000);
+const port = Number(process.env.PORT ?? 3100);
 app.listen(port, () => {
   console.log(`API en écoute sur http://localhost:${port}`);
 });

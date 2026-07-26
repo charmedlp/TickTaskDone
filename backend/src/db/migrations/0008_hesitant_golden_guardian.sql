@@ -1,0 +1,1 @@
+ALTER TABLE `item` ADD `blockingByDefault` boolean DEFAULT true NOT NULL;

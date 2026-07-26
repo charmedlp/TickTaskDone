@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
@@ -80,7 +80,15 @@ const onOutside = (event: PointerEvent): void => {
     open.value = false;
   }
 };
-onMounted(() => document.addEventListener('pointerdown', onOutside));
+// Attach the document listener ONLY while open — many pickers (e.g. one per grid row)
+// must not each keep a permanent global listener.
+watch(open, (isOpen) => {
+  if (isOpen) {
+    setTimeout(() => document.addEventListener('pointerdown', onOutside), 0);
+  } else {
+    document.removeEventListener('pointerdown', onOutside);
+  }
+});
 onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside));
 </script>
 

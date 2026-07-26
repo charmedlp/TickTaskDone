@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { layoutColumn, type LayoutBox } from '@/lib/layout';
 import type { ReminderDto } from '@ticktaskdone/shared';
 import { allDayBlocksForDay, timedBlocksForDay, type CalendarBlock } from '@/lib/renderables';
-import { formatDayHeader, formatHourLabel, formatFullDay } from '@/lib/format';
+import { formatDayHeader, formatHourLabel, formatDayYear } from '@/lib/format';
 import { MINUTES_PER_DAY, startOfDay, toDateTimeInputValue, fromDateTimeInputValue } from '@/lib/datetime';
 import { DEFAULT_CREATE_MINUTES, HOUR_HEIGHT, minutesToY, snapMinutes, yToMinutes } from '@/lib/grid';
 import { useCalendarDrag, type BlockContext } from '@/composables/useCalendarDrag';
@@ -80,13 +80,11 @@ const hasAllDay = computed(() => dayColumns.value.some((column) => column.allDay
 // shown when today is in view. It lists the most-overdue task's title + "+N"; a click
 // reveals the full list, each entry opening its task.
 const reminderDeadline = (reminder: ReminderDto): number => new Date(reminder.effectiveDate).getTime();
-const sortedReminders = computed(() =>
-  [...(props.reminders ?? [])].sort((left, right) => reminderDeadline(left) - reminderDeadline(right)),
-);
+const sortedReminders = computed(() => [...(props.reminders ?? [])].sort((left, right) => reminderDeadline(left) - reminderDeadline(right)));
 const todayColumnIndex = computed(() => props.days.findIndex((day) => day.getTime() === today));
 const showOverdue = computed(() => sortedReminders.value.length > 0 && todayColumnIndex.value >= 0);
 const overdueOpen = ref(false);
-const formatOverdueSince = (reminder: ReminderDto): string => formatFullDay(new Date(reminderDeadline(reminder)));
+const formatOverdueSince = (reminder: ReminderDto): string => formatDayYear(new Date(reminderDeadline(reminder)));
 const onReminderPick = (reminder: ReminderDto): void => {
   overdueOpen.value = false;
   emit('reminder', { reminder });
@@ -161,8 +159,7 @@ const onItemPointerDown = (reminder: ReminderDto, event: PointerEvent): void => 
 const columnsRef = ref<HTMLElement | null>(null);
 const selectedKey = ref<string | null>(null);
 
-const slotDate = (dayIndex: number, minutes: number): Date =>
-  new Date((props.days[dayIndex]?.getTime() ?? 0) + minutes * 60_000);
+const slotDate = (dayIndex: number, minutes: number): Date => new Date((props.days[dayIndex]?.getTime() ?? 0) + minutes * 60_000);
 
 const { draft, startCreate, startBlock } = useCalendarDrag({
   geometry: () => ({ rect: columnsRef.value?.getBoundingClientRect() ?? null, dayCount: props.days.length }),
@@ -283,9 +280,7 @@ const onHoverMove = (event: PointerEvent): void => {
 };
 
 const hoverGhostStyle = computed(() =>
-  hoverPoint.value
-    ? { top: `${minutesToY(hoverPoint.value.startMinutes)}px`, height: `${minutesToY(DEFAULT_CREATE_MINUTES)}px` }
-    : null,
+  hoverPoint.value ? { top: `${minutesToY(hoverPoint.value.startMinutes)}px`, height: `${minutesToY(DEFAULT_CREATE_MINUTES)}px` } : null,
 );
 
 // Dashed preview of where a dragged backlog task would land (snapped), mirroring
@@ -334,12 +329,7 @@ defineExpose({ dropAt });
   <div class="time-grid">
     <div class="grid-header">
       <div class="gutter-spacer" />
-      <div
-        v-for="column in dayColumns"
-        :key="column.day.toISOString()"
-        class="day-header"
-        :class="{ 'is-today': column.day.getTime() === today }"
-      >
+      <div v-for="column in dayColumns" :key="column.day.toISOString()" class="day-header" :class="{ 'is-today': column.day.getTime() === today }">
         {{ formatDayHeader(column.day) }}
       </div>
     </div>
@@ -356,12 +346,7 @@ defineExpose({ dropAt });
           <div v-if="overdueOpen" class="overdue-list">
             <div v-for="reminder in sortedReminders" :key="reminder.idItemOccurrence" class="overdue-item">
               <div class="oi-main">
-                <button
-                  type="button"
-                  class="oi-open"
-                  :title="t('calendarGrid.reminderDragHint')"
-                  @pointerdown="onItemPointerDown(reminder, $event)"
-                >
+                <button type="button" class="oi-open" :title="t('calendarGrid.reminderDragHint')" @pointerdown="onItemPointerDown(reminder, $event)">
                   <span class="oi-title">{{ reminder.title }}</span>
                   <span class="oi-when">{{ t('calendarGrid.overdueSince', { since: formatOverdueSince(reminder) }) }}</span>
                 </button>
@@ -411,12 +396,7 @@ defineExpose({ dropAt });
         @pointermove="onHoverMove"
         @pointerleave="hoverPoint = null"
       >
-        <div
-          v-for="(column, columnIndex) in dayColumns"
-          :key="column.day.toISOString()"
-          class="day-column"
-          :style="{ height: `${bodyHeight}px` }"
-        >
+        <div v-for="(column, columnIndex) in dayColumns" :key="column.day.toISOString()" class="day-column" :style="{ height: `${bodyHeight}px` }">
           <div v-for="hour in hours" :key="hour" class="hour-line" :style="{ top: `${hour * HOUR_HEIGHT}px` }" />
 
           <CalendarBlockView
@@ -436,22 +416,13 @@ defineExpose({ dropAt });
             @timer="emit('timer', { block: positioned.block })"
           />
 
-          <div
-            v-if="draft && draft.dayIndex === columnIndex && ghostStyle"
-            class="ghost"
-            :class="{ 'is-copy': draft.isCopy }"
-            :style="ghostStyle"
-          >
+          <div v-if="draft && draft.dayIndex === columnIndex && ghostStyle" class="ghost" :class="{ 'is-copy': draft.isCopy }" :style="ghostStyle">
             <span v-if="draft.isCopy" class="ghost-badge">＋ copy</span>
           </div>
 
           <div v-if="dropGhost && dropGhost.dayIndex === columnIndex" class="ghost" :style="{ top: dropGhost.top, height: dropGhost.height }" />
 
-          <div
-            v-if="hoverPoint && hoverPoint.dayIndex === columnIndex && hoverGhostStyle"
-            class="ghost is-hover"
-            :style="hoverGhostStyle"
-          />
+          <div v-if="hoverPoint && hoverPoint.dayIndex === columnIndex && hoverGhostStyle" class="ghost is-hover" :style="hoverGhostStyle" />
         </div>
       </div>
     </div>

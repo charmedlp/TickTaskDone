@@ -7,13 +7,15 @@ import type { CategoryDto, TaskSummaryDto } from '@ticktaskdone/shared';
 import { createProject, deleteProject, listProjects, updateProject } from '@/api/projects';
 import { createItem, fetchTaskSummaries, listItems } from '@/api/items';
 import { listCategories } from '@/api/categories';
-import { setOccurrenceStatus } from '@/api/occurrenceActions';
 import { errorMessage } from '@/lib/errorMessage';
 import { buildProjectTree, descendantProjectIds, flattenVisibleProjects } from '@/lib/projectTree';
 import TaskDetail from '@/components/projects/TaskDetail.vue';
+import TaskGrid from '@/components/projects/TaskGrid.vue';
+import ProjectGrid from '@/components/projects/ProjectGrid.vue';
 import CategoryManager from '@/components/projects/CategoryManager.vue';
 import CategoryPicker from '@/components/calendar/CategoryPicker.vue';
 import ColorPicker from '@/components/ColorPicker.vue';
+import ProjectSelect from '@/components/projects/ProjectSelect.vue';
 
 // The Projects view is a management home (brief §1): a project tree on the left, the
 // selected node's detail on the right — a project, the ephemeral Task List, the
@@ -64,6 +66,33 @@ const reload = async (): Promise<void> => {
     error.value = errorMessage(cause);
   }
 };
+
+// Targeted refetches — the grids patch local state for most edits, so we only refetch
+// the ONE list that structurally changed (never the whole 4-endpoint reload per add).
+const reloadProjects = async (): Promise<void> => {
+  try {
+    projects.value = await listProjects();
+  } catch (cause) {
+    error.value = errorMessage(cause);
+  }
+};
+const reloadCategories = async (): Promise<void> => {
+  try {
+    categories.value = await listCategories();
+  } catch (cause) {
+    error.value = errorMessage(cause);
+  }
+};
+
+// Project grid → patch the local `projects` in place (no refetch); a delete reparents
+// children server-side, so that one refetches projects.
+const onProjectCreated = (project: ProjectDto): void => {
+  projects.value = [...projects.value, project];
+};
+const onProjectUpdated = (project: ProjectDto): void => {
+  projects.value = projects.value.map((existing) => (existing.idProject === project.idProject ? project : existing));
+};
+const onProjectDeleted = (): Promise<void> => reloadProjects();
 
 onMounted(async () => {
   loading.value = true;
@@ -134,30 +163,23 @@ const childrenOf = (id: number): ProjectDto[] =>
   projects.value.filter((project) => project.parentProjectId === id).sort((a, b) => a.name.localeCompare(b.name));
 const hasChildren = (id: number): boolean => projects.value.some((project) => project.parentProjectId === id);
 
-const tasksOf = (projectId: number): ItemDto[] =>
-  items.value.filter((item) => item.type === 'task' && item.projectId === projectId);
-const ephemeralTasks = computed(() =>
-  items.value.filter(
-    (item) => item.type === 'task' && item.projectId === null,
-  ),
-);
+// The virtual Task List = tasks with no project.
+const ephemeralTasks = computed(() => items.value.filter((item) => item.type === 'task' && item.projectId === null));
 
-// --- Per-task rollups (row enrichment + project stats, brief §2/§4) ----------
+// A project's whole subtree of tasks (itself + all descendant projects) for its grid.
+const subtreeTaskItems = (projectId: number): ItemDto[] => {
+  const ids = descendantProjectIds(projects.value, projectId); // includes the project itself
+  return items.value.filter((item) => item.type === 'task' && item.projectId !== null && ids.has(item.projectId));
+};
+
+// Stable references for the grids (a plain function call in the template would return a
+// fresh array every parent render, churning the child grids).
+const selectedSubprojects = computed(() => (selectedProject.value ? childrenOf(selectedProject.value.idProject) : []));
+const selectedSubtreeTasks = computed(() => (selectedProject.value ? subtreeTaskItems(selectedProject.value.idProject) : []));
+
+// --- Per-task rollups (project stats, brief §2/§4) ----------
 const summaryByItem = computed(() => new Map(summaries.value.map((summary) => [summary.itemId, summary])));
-const summaryFor = (itemId: number): TaskSummaryDto | undefined => summaryByItem.value.get(itemId);
 const formatHours = (minutes: number): string => `${(minutes / 60).toFixed(1)}h`;
-const formatDue = (iso: string): string => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-
-// Task items joined with their rollup, for the enriched list rows.
-interface EnrichedTask {
-  item: ItemDto;
-  summary: TaskSummaryDto | undefined;
-}
-const enrichedTasksOf = (projectId: number): EnrichedTask[] =>
-  tasksOf(projectId).map((item) => ({ item, summary: summaryFor(item.idItem) }));
-const enrichedEphemeral = computed<EnrichedTask[]>(() =>
-  ephemeralTasks.value.map((item) => ({ item, summary: summaryFor(item.idItem) })),
-);
 
 // §4 stats over a project's DIRECT tasks only — NO recursion into subprojects
 // (recursive rollups + hourly rate are Phase 7).
@@ -208,16 +230,6 @@ watch(
   },
   { immediate: true },
 );
-
-// Valid parents when re-parenting the selected project: everything but itself and
-// its own subtree (the DB trigger guards too, but hiding them avoids a sure error).
-const parentOptions = computed<ProjectDto[]>(() => {
-  if (selected.value.kind !== 'project') {
-    return [];
-  }
-  const invalid = descendantProjectIds(projects.value, selected.value.id);
-  return treeProjects.value.filter((project) => !invalid.has(project.idProject)).sort((a, b) => a.name.localeCompare(b.name));
-});
 
 // --- Selection / tree interactions ------------------------------------------
 const selectProject = (id: number): void => {
@@ -276,14 +288,6 @@ const run = async (operation: () => Promise<void>): Promise<void> => {
     busy.value = false;
   }
 };
-
-// Toggle a non-recurring task's done state from its row checkbox.
-const toggleTaskDone = (task: ItemDto): Promise<void> =>
-  run(async () => {
-    const next = summaryFor(task.idItem)?.status === 'done' ? 'todo' : 'done';
-    await setOccurrenceStatus(task.idItem, { occurrenceDate: null, status: next });
-    await reload();
-  });
 
 const newProject = (parentProjectId: number | null): Promise<void> =>
   run(async () => {
@@ -358,9 +362,6 @@ const removeProject = (): Promise<void> =>
     await reload();
   });
 
-const onParentChange = (value: string): void => {
-  draft.parentProjectId = value === '' ? null : Number(value);
-};
 </script>
 
 <template>
@@ -442,33 +443,18 @@ const onParentChange = (value: string): void => {
               <h2>{{ t('backlog.taskListLabel') }}</h2>
               <p class="muted small">{{ t('projects.ephemeralHint') }}</p>
             </div>
-            <button type="button" class="btn small primary" :disabled="busy" @click="newTask(null)">{{ t('projects.addTask') }}</button>
           </div>
-          <ul class="task-list">
-            <li
-              v-for="row in enrichedEphemeral"
-              :key="row.item.idItem"
-              class="task-row"
-              :class="{ 'is-done': row.summary?.status === 'done' }"
-            >
-              <span
-                v-if="!row.summary?.isRecurrent"
-                class="task-check"
-                :class="{ checked: row.summary?.status === 'done' }"
-                :title="row.summary?.status === 'done' ? t('projects.markTodo') : t('projects.markDone')"
-                @click="toggleTaskDone(row.item)"
-              >
-                <svg v-if="row.summary?.status === 'done'" viewBox="0 0 16 16" class="tick"><path d="M3 8l3.5 3.5L13 5" /></svg>
-              </span>
-              <span v-else class="task-recur" :title="t('projects.recurring')">⟳</span>
-              <button type="button" class="task-open" @click="selectTask(row.item.idItem)">{{ row.item.title }}</button>
-              <span v-if="row.summary?.dueDate" class="task-due">{{ formatDue(row.summary.dueDate) }}</span>
-              <span class="task-badge" :class="row.summary?.planned ? 'planned' : 'backlog'">
-                {{ row.summary?.planned ? t('projects.planned') : t('projects.backlog') }}
-              </span>
-            </li>
-            <li v-if="enrichedEphemeral.length === 0" class="muted small">{{ t('projects.noEphemeralTasks') }}</li>
-          </ul>
+          <TaskGrid
+            :tasks="ephemeralTasks"
+            :summary-by-item="summaryByItem"
+            :projects="projects"
+            :categories="categories"
+            :current-project-id="null"
+            :show-subproject="false"
+            @changed="reload"
+            @open="selectTask"
+            @error="error = $event"
+          />
         </div>
 
         <!-- Category tree editor (§5) -->
@@ -479,7 +465,7 @@ const onParentChange = (value: string): void => {
         <!-- Task detail -->
         <div v-else-if="selected.kind === 'task' && selectedTaskItem" class="detail">
           <button type="button" class="back" @click="backFromTask">← {{ t('projects.back') }}</button>
-          <TaskDetail :item="selectedTaskItem" @changed="reload" @removed="onTaskRemoved" />
+          <TaskDetail :item="selectedTaskItem" :projects="projects" @changed="reload" @removed="onTaskRemoved" />
         </div>
 
         <!-- Project detail -->
@@ -500,13 +486,16 @@ const onParentChange = (value: string): void => {
                 <span>{{ t('projects.income') }}</span>
                 <input v-model.number="draft.income" type="number" min="0" step="0.01" />
               </label>
-              <label class="field grow">
+              <div class="field grow">
                 <span>{{ t('projects.parent') }}</span>
-                <select :value="draft.parentProjectId ?? ''" @change="onParentChange(($event.target as HTMLSelectElement).value)">
-                  <option value="">{{ t('projects.noneTopLevel') }}</option>
-                  <option v-for="option in parentOptions" :key="option.idProject" :value="option.idProject">{{ option.name }}</option>
-                </select>
-              </label>
+                <ProjectSelect
+                  :model-value="draft.parentProjectId"
+                  :projects="projects"
+                  :none-label="t('projects.noneTopLevel')"
+                  :exclude-subtree-of="selectedProject?.idProject ?? null"
+                  @update:model-value="draft.parentProjectId = $event"
+                />
+              </div>
             </div>
             <div class="row">
               <span class="field-label">{{ t('projects.categories') }}</span>
@@ -544,16 +533,17 @@ const onParentChange = (value: string): void => {
 
           <section class="block">
             <h3>{{ t('projects.subprojects') }}</h3>
-            <ul class="sub-list">
-              <li v-for="child in childrenOf(selectedProject.idProject)" :key="child.idProject">
-                <button type="button" class="link-row" @click="selectProject(child.idProject)">
-                  <span class="dot" :style="{ background: effectiveProjectColor(child.idProject) }" />
-                  <span>{{ child.name }}</span>
-                  <span v-if="child.status !== 'active'" class="node-status">{{ STATUS_LABELS[child.status] }}</span>
-                </button>
-              </li>
-              <li v-if="childrenOf(selectedProject.idProject).length === 0" class="muted small">{{ t('projects.noSubprojects') }}</li>
-            </ul>
+            <ProjectGrid
+              :subprojects="selectedSubprojects"
+              :parent-project-id="selectedProject.idProject"
+              :categories="categories"
+              @created="onProjectCreated"
+              @updated="onProjectUpdated"
+              @deleted="onProjectDeleted"
+              @categories-changed="reloadCategories"
+              @open="selectProject"
+              @error="error = $event"
+            />
           </section>
 
           <!-- Direct-task stats (§4 placeholder — no subproject recursion) -->
@@ -571,31 +561,18 @@ const onParentChange = (value: string): void => {
 
           <section class="block">
             <h3>{{ t('projects.tasks') }}</h3>
-            <ul class="task-list">
-              <li
-                v-for="row in enrichedTasksOf(selectedProject.idProject)"
-                :key="row.item.idItem"
-                class="task-row"
-                :class="{ 'is-done': row.summary?.status === 'done' }"
-              >
-                <span
-                  v-if="!row.summary?.isRecurrent"
-                  class="task-check"
-                  :class="{ checked: row.summary?.status === 'done' }"
-                  :title="row.summary?.status === 'done' ? t('projects.markTodo') : t('projects.markDone')"
-                  @click="toggleTaskDone(row.item)"
-                >
-                  <svg v-if="row.summary?.status === 'done'" viewBox="0 0 16 16" class="tick"><path d="M3 8l3.5 3.5L13 5" /></svg>
-                </span>
-                <span v-else class="task-recur" :title="t('projects.recurring')">⟳</span>
-                <button type="button" class="task-open" @click="selectTask(row.item.idItem)">{{ row.item.title }}</button>
-                <span v-if="row.summary?.dueDate" class="task-due">{{ formatDue(row.summary.dueDate) }}</span>
-                <span class="task-badge" :class="row.summary?.planned ? 'planned' : 'backlog'">
-                  {{ row.summary?.planned ? t('projects.planned') : t('projects.backlog') }}
-                </span>
-              </li>
-              <li v-if="enrichedTasksOf(selectedProject.idProject).length === 0" class="muted small">{{ t('projects.noTasks') }}</li>
-            </ul>
+            <TaskGrid
+              :key="selectedProject.idProject"
+              :tasks="selectedSubtreeTasks"
+              :summary-by-item="summaryByItem"
+              :projects="projects"
+              :categories="categories"
+              :current-project-id="selectedProject.idProject"
+              :show-subproject="hasChildren(selectedProject.idProject)"
+              @changed="reload"
+              @open="selectTask"
+              @error="error = $event"
+            />
           </section>
         </div>
       </div>
@@ -897,129 +874,6 @@ const onParentChange = (value: string): void => {
   font-size: 13px;
   color: var(--text-muted);
   margin: 0 0 8px;
-}
-
-.sub-list,
-.task-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.link-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  font: inherit;
-  text-align: left;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: none;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.link-row:hover {
-  background: var(--border-subtle, rgba(127, 127, 127, 0.12));
-}
-
-.task-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.task-row.is-done {
-  opacity: 0.6;
-}
-
-.task-row.is-done .task-open {
-  text-decoration: line-through;
-}
-
-.task-open {
-  flex: 1;
-  min-width: 0;
-  font: inherit;
-  text-align: left;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--text);
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.task-open:hover {
-  text-decoration: underline;
-}
-
-.task-check {
-  flex: 0 0 auto;
-  width: 15px;
-  height: 15px;
-  border: 1.5px solid var(--text-muted);
-  border-radius: 3px;
-  cursor: pointer;
-}
-
-.task-check.checked {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.tick {
-  width: 100%;
-  height: 100%;
-  fill: none;
-  stroke: #fff;
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.task-recur {
-  flex: 0 0 auto;
-  width: 15px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.task-due {
-  flex: 0 0 auto;
-  font-size: 11px;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.task-badge {
-  flex: 0 0 auto;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding: 2px 6px;
-  border-radius: 10px;
-}
-
-.task-badge.planned {
-  background: rgba(34, 170, 136, 0.15);
-  color: #22aa88;
-}
-
-.task-badge.backlog {
-  background: var(--border-subtle, rgba(127, 127, 127, 0.15));
-  color: var(--text-muted);
 }
 
 .stat-grid {

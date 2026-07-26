@@ -17,6 +17,17 @@ const itemFields = z.object({
   rrule: z.string().max(1000).nullable(), // RFC 5545 pattern (without DTSTART)
   recurrenceStart: z.coerce.date().nullable(), // the DTSTART anchor (absolute instant)
   timezone: z.string().max(64).nullable(), // IANA id for wall-clock (recurrence DST, dueDate)
+  // Recurring tasks only: true (default) keeps a single active instance — maintenance
+  // auto-cancels older undone occurrences; false accumulates every missed instance as
+  // its own standing to-do (e.g. "prepare payroll" — a skipped run still has to happen).
+  supersedeStaleOccurrences: z.boolean().default(true),
+  // true (default): the task surfaces overdue reminders. false: never overdue, never
+  // auto-cancelled (e.g. "Dinner" — a recurring convenience task with no follow-up).
+  generatesReminder: z.boolean().default(true),
+  // The item's default "blocking": carried by its unplaced (virtual) slots and applied
+  // to any fresh placement, so blocking survives an unschedule. Per-block isBlocking
+  // still overrides for an individual placement.
+  blockingByDefault: z.boolean().default(true),
 });
 
 // Category assignments (the chosen leaves only — never their ancestors). Optional:

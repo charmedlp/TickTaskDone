@@ -18,12 +18,15 @@ export default defineConfig({
     },
   },
   server: {
+    // Dedicated dev port (moved off Vite's default 5173 to avoid local conflicts).
+    port: 5273,
+    strictPort: true,
     // Dev proxy: same-origin /api calls forwarded to the Express backend.
     proxy: {
       '/api': {
         // 127.0.0.1, not localhost: on Windows `localhost` resolves to ::1 (IPv6)
         // first and can stall on a fallback to IPv4 — an intermittent multi-second lag.
-        target: 'http://127.0.0.1:3000',
+        target: 'http://127.0.0.1:3100',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },

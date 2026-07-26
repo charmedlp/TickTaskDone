@@ -21,6 +21,7 @@ const formatter = (shape: string, options: Intl.DateTimeFormatOptions): Intl.Dat
 
 const DAY_HEADER: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric' };
 const DAY_TITLE: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' };
+const DAY_SHORT: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' };
 const MONTH_TITLE: Intl.DateTimeFormatOptions = { month: 'long', year: 'numeric' };
 const LONG_DATE: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric', year: 'numeric' };
 const TIME: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hour12: false };
@@ -32,6 +33,10 @@ const sameLocalDay = (a: Date, b: Date): boolean =>
 export const formatDayHeader = (day: Date): string => formatter('dayHeader', DAY_HEADER).format(day);
 
 export const formatFullDay = (day: Date): string => formatter('dayTitle', DAY_TITLE).format(day);
+
+export const formatDayYear = (day: Date): string => formatter('dayYear', DAY_SHORT).format(day);
+
+export const formatMonthTitle = (day: Date): string => formatter('monthTitle', MONTH_TITLE).format(day);
 
 export const formatHourLabel = (hour: number): string => `${String(hour).padStart(2, '0')}:00`;
 

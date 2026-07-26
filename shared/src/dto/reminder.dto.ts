@@ -9,6 +9,7 @@ export interface ReminderDto {
   itemId: number;
   title: string;
   resolvedColor: string;
+  estimatedMinutes: number | null; // drives the length of a block created by rescheduling
   occurrenceDate: string | null;
   dueDate: string | null;
   effectiveDate: string; // the moment it is overdue at (its block if placed, else slot/dueDate)

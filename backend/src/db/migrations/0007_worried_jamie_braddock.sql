@@ -1,0 +1,1 @@
+ALTER TABLE `item` ADD `generatesReminder` boolean DEFAULT true NOT NULL;

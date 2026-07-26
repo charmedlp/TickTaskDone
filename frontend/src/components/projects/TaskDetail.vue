@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ItemDto, OccurrenceStatus, PlannedMomentDto, TimeBlockDto } from '@ticktaskdone/shared';
+import type { ItemDto, OccurrenceStatus, PlannedMomentDto, ProjectDto, TimeBlockDto } from '@ticktaskdone/shared';
 import { deleteItem, enableRecurrence, fetchItemMoments, removeRecurrence, updateItem } from '@/api/items';
 import {
   deleteOccurrence,
@@ -12,7 +12,7 @@ import {
   updateOccurrence,
 } from '@/api/occurrenceActions';
 import { deleteTimeBlock, updateTimeBlock } from '@/api/timeBlocks';
-import CategoryPicker from '@/components/calendar/CategoryPicker.vue';
+import ItemCoreFields from '@/components/projects/ItemCoreFields.vue';
 import {
   browserTimezone,
   fromDateTimeInputValue,
@@ -21,21 +21,14 @@ import {
 } from '@/lib/datetime';
 import { errorMessage } from '@/lib/errorMessage';
 import { formatFullDay, formatTimeRange } from '@/lib/format';
-import {
-  buildRrule,
-  emptyRecurrence,
-  parseRrule,
-  WEEKDAYS,
-  type Frequency,
-  type RecurrenceModel,
-  type Weekday,
-} from '@/lib/recurrenceModel';
+import { buildRrule, emptyRecurrence, parseRrule, type RecurrenceModel } from '@/lib/recurrenceModel';
+import RecurrenceEditor from '@/components/projects/RecurrenceEditor.vue';
 
 // Task detail (brief §3.1): edit the item's own fields AND manage its planned
 // moments, so nothing forces a trip to the calendar. The recurrent/split invariant
 // is honored by the "add moment" branch: a recurrent task gets a custom occurrence,
 // a non-recurrent one gets another timeBlock.
-const props = defineProps<{ item: ItemDto }>();
+const props = defineProps<{ item: ItemDto; projects: ProjectDto[] }>();
 const emit = defineEmits<{ changed: []; removed: [] }>();
 
 const { t } = useI18n();
@@ -114,12 +107,23 @@ const pagePrev = (): Promise<void> => {
   return loadMoments();
 };
 
-// --- Item field draft -------------------------------------------------------
-const fields = reactive<{ title: string; description: string; estimatedMinutes: number | null; categoryIds: number[] }>({
+// --- Item field draft (the shared core fields; due/done stay occurrence-level) ------
+const fields = reactive<{
+  title: string;
+  description: string;
+  projectId: number | null;
+  estimatedMinutes: number | null;
+  categoryIds: number[];
+  color: string | null;
+  generatesReminder: boolean;
+}>({
   title: '',
   description: '',
+  projectId: null,
   estimatedMinutes: null,
   categoryIds: [],
+  color: null,
+  generatesReminder: true,
 });
 const dueDateInput = ref<string>(''); // <input type="date"> for the non-recurrent dueDate
 
@@ -128,8 +132,11 @@ watch(
   (item, previous) => {
     fields.title = item.title;
     fields.description = item.description ?? '';
+    fields.projectId = item.projectId;
     fields.estimatedMinutes = item.estimatedMinutes;
     fields.categoryIds = [...item.categoryIds];
+    fields.color = item.color;
+    fields.generatesReminder = item.generatesReminder;
     // Switching to a different task resets the pager to its first (upcoming) window.
     if (!previous || previous.idItem !== item.idItem) {
       momentsQuery.value = { direction: 'start', cursor: null };
@@ -165,25 +172,26 @@ const saveFields = (): Promise<void> =>
     await updateItem(props.item.idItem, {
       title: fields.title,
       description: fields.description === '' ? null : fields.description,
+      projectId: fields.projectId,
       estimatedMinutes: fields.estimatedMinutes,
       categoryIds: [...fields.categoryIds],
+      color: fields.color,
+      generatesReminder: fields.generatesReminder,
     });
   });
 
 // --- Recurrence toggle (brief §3.2 A/B/C) -----------------------------------
-const FREQUENCIES: Frequency[] = ['daily', 'weekly', 'monthly'];
 const recurrence = reactive<RecurrenceModel>(emptyRecurrence());
+// Keep one active instance (auto-cancel older undone) vs accumulate every missed one.
+const supersedeStale = ref(true);
 watch(
   () => props.item,
-  (item) => Object.assign(recurrence, parseRrule(item.rrule)),
+  (item) => {
+    Object.assign(recurrence, parseRrule(item.rrule));
+    supersedeStale.value = item.supersedeStaleOccurrences;
+  },
   { immediate: true },
 );
-// Toggle a weekday for a weekly BYDAY rule (e.g. Tue+Sat, or Mon–Fri).
-const toggleWeekday = (day: Weekday): void => {
-  recurrence.weekdays = recurrence.weekdays.includes(day)
-    ? recurrence.weekdays.filter((value) => value !== day)
-    : [...recurrence.weekdays, day];
-};
 
 // The rule anchor ("À partir de …") — the DTSTART date+time that seeds the series and
 // fixes each occurrence's time-of-day. Seeded from the item's recurrenceStart when
@@ -237,6 +245,9 @@ const makeRecurring = (): Promise<void> =>
       recurrenceStart: fromDateTimeInputValue(recurrenceStartInput.value),
       timezone: browserTimezone(),
     });
+    if (!supersedeStale.value) {
+      await updateItem(props.item.idItem, { supersedeStaleOccurrences: false }); // default is true
+    }
   });
 
 // Retune an already-recurring task's pattern and/or anchor. Virtual occurrences
@@ -252,6 +263,7 @@ const updateRecurrence = (): Promise<void> =>
       rrule,
       recurrenceStart: fromDateTimeInputValue(recurrenceStartInput.value),
       timezone: browserTimezone(),
+      supersedeStaleOccurrences: supersedeStale.value,
     });
   });
 
@@ -441,6 +453,11 @@ const blockRange = (block: TimeBlockDto): string => {
   return `${formatFullDay(start)} · ${formatTimeRange(start, end)}`;
 };
 
+// A virtual slot is "upcoming" only if its date is still ahead — a past projected slot
+// is not upcoming (it is either superseded/cancelled or an accumulated overdue instance).
+const isFuture = (moment: PlannedMomentDto): boolean =>
+  moment.occurrenceDate !== null && new Date(moment.occurrenceDate).getTime() >= Date.now();
+
 // Display range for a recurring moment: the placed block if any, otherwise the slot's
 // start (occurrenceDate) for the task's estimated duration (brief §3.1).
 const momentRange = (moment: PlannedMomentDto): string => {
@@ -463,17 +480,18 @@ const momentRange = (moment: PlannedMomentDto): string => {
 
     <!-- Item fields -->
     <div class="fields">
-      <input v-model="fields.title" type="text" class="title-input" :placeholder="t('taskDetail.taskTitle')" />
-      <textarea v-model="fields.description" class="desc-input" rows="2" :placeholder="t('taskDetail.description')" />
-      <div class="field">
-        <span>{{ t('taskDetail.categories') }}</span>
-        <CategoryPicker v-model="fields.categoryIds" />
-      </div>
+      <ItemCoreFields
+        v-model:title="fields.title"
+        v-model:project-id="fields.projectId"
+        v-model:description="fields.description"
+        v-model:category-ids="fields.categoryIds"
+        v-model:estimated-minutes="fields.estimatedMinutes"
+        v-model:color="fields.color"
+        v-model:generates-reminder="fields.generatesReminder"
+        :projects="projects"
+        :show-reminder="true"
+      />
       <div class="row">
-        <label class="field">
-          <span>{{ t('taskDetail.estimateMin') }}</span>
-          <input v-model.number="fields.estimatedMinutes" type="number" min="0" step="5" />
-        </label>
         <label v-if="!isRecurrent" class="field">
           <span>{{ t('taskDetail.dueDate') }}</span>
           <input v-model="dueDateInput" type="date" @change="saveDueDate" />
@@ -497,31 +515,12 @@ const momentRange = (moment: PlannedMomentDto): string => {
     <section class="recurrence">
       <h3>{{ t('taskDetail.recurrence') }}</h3>
       <div class="recur-edit">
-        <label class="rc-freq">
-          {{ t('taskDetail.repeatEvery') }}
-          <input v-model.number="recurrence.interval" type="number" min="1" step="1" class="rc-interval" />
-          <select v-model="recurrence.freq">
-            <option value="none">{{ t('taskDetail.freqOff') }}</option>
-            <option v-for="f in FREQUENCIES" :key="f" :value="f">{{ t('taskDetail.freqUnit.' + f) }}</option>
-          </select>
-        </label>
-        <div v-if="recurrence.freq === 'weekly'" class="rc-weekdays">
-          <button
-            v-for="day in WEEKDAYS"
-            :key="day.value"
-            type="button"
-            class="rc-weekday"
-            :class="{ on: recurrence.weekdays.includes(day.value) }"
-            @click="toggleWeekday(day.value)"
-          >
-            {{ t('weekday.' + day.value) }}
-          </button>
-        </div>
-        <label class="rc-count">
-          {{ t('taskDetail.for') }}
-          <input v-model.number="recurrence.count" type="number" min="1" step="1" placeholder="∞" class="rc-interval" />
-          {{ t('taskDetail.times') }}
-        </label>
+        <RecurrenceEditor
+          :model-value="recurrence"
+          v-model:supersede-stale="supersedeStale"
+          :show-supersede="fields.generatesReminder"
+          @update:model-value="Object.assign(recurrence, $event)"
+        />
         <label class="rc-start">
           {{ t('taskDetail.starting') }}
           <input v-model="recurrenceStartInput" type="datetime-local" class="rc-start-input" />
@@ -599,7 +598,7 @@ const momentRange = (moment: PlannedMomentDto): string => {
           v-for="moment in moments"
           :key="moment.idItemOccurrence ?? `v${moment.occurrenceDate}`"
           class="moment-row"
-          :class="{ 'is-upcoming': !moment.materialized, 'is-cancelled': moment.status === 'cancelled' }"
+          :class="{ 'is-upcoming': !moment.materialized && isFuture(moment), 'is-cancelled': moment.status === 'cancelled' }"
         >
           <template v-if="editingKey === `o${moment.idItemOccurrence ?? moment.occurrenceDate}`">
             <input v-model="editStart" type="datetime-local" />
@@ -616,7 +615,8 @@ const momentRange = (moment: PlannedMomentDto): string => {
               @change="toggleMomentDone(moment)"
             />
             <span class="moment-when">{{ momentRange(moment) }}</span>
-            <span v-if="!moment.materialized" class="moment-tag">{{ t('taskDetail.upcoming') }}</span>
+            <span v-if="moment.status === 'cancelled'" class="moment-status">{{ t('taskDetail.status.cancelled') }}</span>
+            <span v-else-if="!moment.materialized && isFuture(moment)" class="moment-tag">{{ t('taskDetail.upcoming') }}</span>
             <span v-else-if="moment.status !== 'todo'" class="moment-status">{{ t('taskDetail.status.' + moment.status) }}</span>
             <button type="button" class="btn small" :disabled="busy" @click="openEditOccurrence(moment)">{{ t('common.edit') }}</button>
             <button type="button" class="btn small danger" :disabled="busy" :aria-label="t('common.delete')" @click="removeOccurrence(moment)">✕</button>

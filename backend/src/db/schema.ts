@@ -121,6 +121,16 @@ export const item = mysqlTable('item', {
   // Fuseau IANA (ex. America/Montreal) pour l'heure murale : récurrence DST-correcte,
   // affichage de occurrenceDate / dueDate. null = flottant / hérité (legacy).
   timezone:         varchar('timezone', { length: 64 }),
+  // Tâches récurrentes : true (défaut) = garder une seule instance active (annulation
+  // auto des anciennes non faites) ; false = accumuler chaque instance manquée.
+  supersedeStaleOccurrences: boolean('supersedeStaleOccurrences').default(true).notNull(),
+  // true (défaut) = la tâche génère des rappels (section « En retard »). false = jamais
+  // en retard, jamais auto-annulée (ex. « Souper »).
+  generatesReminder: boolean('generatesReminder').default(true).notNull(),
+  // Défaut « bloquant » de l'item : porté par les créneaux non encore planifiés (virtuels)
+  // et appliqué à toute nouvelle planification, pour que le blocage survive à une
+  // déplanification. Les blocs individuels gardent leur propre isBlocking.
+  blockingByDefault: boolean('blockingByDefault').default(true).notNull(),
   ...audit,
 }, (t) => [
   index('item_workspace_idx').on(t.workspaceId),

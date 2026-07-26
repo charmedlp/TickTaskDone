@@ -18,6 +18,9 @@ const makeItem = (overrides: Partial<Item>): Item => ({
   rrule: null,
   recurrenceStart: null,
   timezone: null,
+  supersedeStaleOccurrences: true,
+  generatesReminder: true,
+  blockingByDefault: true,
   createdAt: utc(2026, 1, 1),
   updatedAt: utc(2026, 1, 1),
   createdBy: 1,
@@ -77,7 +80,7 @@ const to = utc(2026, 2, 1, 0);
 describe('assembleWindow', () => {
   it('emits one virtual view per expanded slot, each with a null id', () => {
     const recurrent = makeItem({ idItem: 1, rrule: 'FREQ=WEEKLY;COUNT=3', recurrenceStart: utc(2026, 1, 5, 9) });
-    const views = assembleWindow([context(recurrent)], new Map(), new Map(), new Map(), new Map(), from, to);
+    const views = assembleWindow([context(recurrent)], new Map(), new Map(), new Map(), new Map(), new Set(), from, to);
 
     expect(views).toHaveLength(3);
     expect(views.every((view) => view.idItemOccurrence === null && !view.materialized)).toBe(true);
@@ -87,6 +90,19 @@ describe('assembleWindow', () => {
       '2026-01-12T09:00:00.000Z',
       '2026-01-19T09:00:00.000Z',
     ]);
+  });
+
+  it('marks virtual slots before the supersede cutoff as cancelled (single active instance)', () => {
+    const recurrent = makeItem({ idItem: 1, rrule: 'FREQ=WEEKLY;COUNT=3', recurrenceStart: utc(2026, 1, 5, 9) });
+    // The latest arrived slot is Jan 19: the two earlier virtual slots are superseded.
+    const ctx: ItemContext = { item: recurrent, resolvedColor: '#808080', supersedeBefore: utc(2026, 1, 19, 9) };
+    const views = assembleWindow([ctx], new Map(), new Map(), new Map(), new Map(), new Set(), from, to);
+    const status = (iso: string): string | undefined =>
+      views.find((view) => view.occurrenceDate?.toISOString() === iso)?.status;
+
+    expect(status('2026-01-05T09:00:00.000Z')).toBe('cancelled');
+    expect(status('2026-01-12T09:00:00.000Z')).toBe('cancelled');
+    expect(status('2026-01-19T09:00:00.000Z')).toBe('todo'); // the active instance is not superseded
   });
 
   it('lets a materialized row mask the virtual on its slot (no duplicate)', () => {
@@ -99,6 +115,7 @@ describe('assembleWindow', () => {
       new Map(),
       new Map(),
       new Map(),
+      new Set(),
       from,
       to,
     );
@@ -108,6 +125,28 @@ describe('assembleWindow', () => {
     expect(secondSlot?.materialized).toBe(true);
     expect(secondSlot?.idItemOccurrence).toBe(100);
     expect(secondSlot?.status).toBe('done');
+  });
+
+  it('hides a materialized occurrence whose only block sits OUTSIDE the window (placed elsewhere)', () => {
+    const recurrent = makeItem({ idItem: 1, rrule: 'FREQ=WEEKLY;COUNT=3', recurrenceStart: utc(2026, 1, 5, 9) });
+    // Anchored at the Jan 5 slot, but its block was moved far out of the window: no
+    // in-window blocks, yet it IS placed. It must not fall back to its bare anchor.
+    const moved = makeOccurrence({ idItemOccurrence: 100, itemId: 1, occurrenceDate: utc(2026, 1, 5, 9), status: 'todo' });
+    const views = assembleWindow(
+      [context(recurrent)],
+      new Map([[1, [moved]]]),
+      new Map(),
+      new Map(), // no in-window blocks
+      new Map(),
+      new Set([100]), // but placed (block out of window)
+      from,
+      to,
+    );
+
+    expect(views.map((view) => view.occurrenceDate?.toISOString())).toEqual([
+      '2026-01-12T09:00:00.000Z',
+      '2026-01-19T09:00:00.000Z',
+    ]); // the Jan 5 slot is suppressed
   });
 
   it('attaches the current user blocks to their materialized occurrence', () => {
@@ -121,6 +160,7 @@ describe('assembleWindow', () => {
       new Map(),
       new Map([[100, [block]]]),
       new Map(),
+      new Set(),
       from,
       to,
     );
@@ -140,6 +180,7 @@ describe('assembleWindow', () => {
       new Map([[200, occ]]),
       new Map([[200, [block]]]),
       new Map(),
+      new Set(),
       from,
       to,
     );
@@ -161,6 +202,7 @@ describe('assembleWindow', () => {
       new Map([[100, occ]]), // same occurrence surfaced by the block query
       new Map([[100, [block]]]),
       new Map(),
+      new Set(),
       from,
       to,
     );
@@ -172,7 +214,7 @@ describe('assembleWindow', () => {
 
   it('skips a non-recurrent item that has no block (backlog stays out of the feed)', () => {
     const task = makeItem({ idItem: 3, title: 'Unscheduled' });
-    const views = assembleWindow([context(task)], new Map(), new Map(), new Map(), new Map(), from, to);
+    const views = assembleWindow([context(task)], new Map(), new Map(), new Map(), new Map(), new Set(), from, to);
     expect(views).toEqual([]);
   });
 
@@ -188,6 +230,7 @@ describe('assembleWindow', () => {
       new Map([[100, occ]]),
       new Map([[100, [block]]]),
       new Map([[100, [log]]]),
+      new Set(),
       from,
       to,
     );
@@ -208,6 +251,7 @@ describe('assembleWindow', () => {
       new Map([[400, occ]]), // surfaced by the log query, not a block
       new Map(),
       new Map([[400, [log]]]),
+      new Set(),
       from,
       to,
     );

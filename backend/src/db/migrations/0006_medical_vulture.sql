@@ -1,0 +1,1 @@
+ALTER TABLE `item` ADD `supersedeStaleOccurrences` boolean DEFAULT true NOT NULL;

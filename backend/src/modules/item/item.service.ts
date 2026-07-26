@@ -73,6 +73,9 @@ export const createItem = async (
         rrule: input.rrule,
         recurrenceStart: input.recurrenceStart,
         timezone: input.timezone,
+        supersedeStaleOccurrences: input.supersedeStaleOccurrences,
+        generatesReminder: input.generatesReminder,
+        blockingByDefault: input.blockingByDefault,
         createdBy: userId,
         updatedBy: userId,
       })

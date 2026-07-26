@@ -19,6 +19,8 @@ export interface FormSeed {
   isBlocking: boolean;
   allDay: boolean;
   recurrence: RecurrenceModel;
+  supersedeStaleOccurrences: boolean;
+  generatesReminder: boolean;
   categoryIds: number[];
 }
 

@@ -66,6 +66,10 @@ export const scheduleOccurrenceInput = z
     isBlocking: z.boolean().optional(),
     dueDate: z.coerce.date().nullable(),
     timezone: z.string().max(64).nullable(),
+    // When this schedule MOVES a recurring occurrence (a new custom occurrence at the
+    // drop), the original rule slot to cancel so it stops projecting beside the new one.
+    // Omitted for a plain schedule/split/duplicate, which leave the source untouched.
+    supersedeOccurrenceDate: z.coerce.date().nullish(),
   })
   .refine((value) => value.timeEnd > value.timeStart, { message: 'timeEnd must be after timeStart.' });
 

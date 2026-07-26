@@ -14,8 +14,20 @@
     "edit": "Edit",
     "add": "Add",
     "close": "Close",
-    "loading": "Loading…",
-    "actionFailed": "Action failed."
+    "loading": "Loading…"
+  },
+  "recurrence": {
+    "every": "every",
+    "for": "for",
+    "times": "times",
+    "supersede": "One active instance",
+    "supersedeHint": "Keep a single active instance: past undone occurrences are auto-cancelled. Uncheck to accumulate every missed instance as its own to-do.",
+    "freq": {
+      "none": "Does not repeat",
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "monthly": "Monthly"
+    }
   },
   "weekday": {
     "MO": "Mo",
@@ -28,9 +40,11 @@
   },
   "backlog": {
     "title": "Backlog",
+    "recurringTitle": "Recurring",
     "taskListLabel": "Task List",
     "project": "Project",
     "empty": "No unscheduled tasks. Drag to plan them.",
+    "recurringEmpty": "No recurring task is absent from this view.",
     "show": "Show backlog",
     "hide": "Hide backlog",
     "due": "Due {date}"
@@ -61,6 +75,7 @@
       "duplicate": "Duplicate",
       "markTodo": "Mark as to-do",
       "markDone": "Mark as done",
+      "restore": "Restore",
       "skip": "Skip (cancel)",
       "unschedule": "Unschedule",
       "deleteOccurrence": "Delete occurrence",
@@ -75,44 +90,29 @@
     "newTask": "New task…",
     "title": "Title",
     "project": "Project",
-    "projectNone": "None (ephemeral)",
+    "projectNone": "None (Task List)",
     "description": "Description",
     "customColor": "Custom color",
     "colorHint": "Uses the project / default color",
     "estimatedMinutes": "Estimated minutes",
     "categories": "Categories",
     "recurrence": "Recurrence",
-    "every": "every",
-    "for": "for",
-    "times": "times",
     "start": "Start",
     "end": "End",
     "dueDate": "Due date",
+    "generatesReminder": "Generate reminders when overdue",
+    "linkDueToBlock": "Link to block end",
     "allDay": "All day",
     "blocking": "Blocking",
     "create": "Create",
     "endAfterStart": "End must be after start.",
-    "invalidValues": "Invalid values.",
-    "freq": {
-      "none": "Does not repeat",
-      "daily": "Daily",
-      "weekly": "Weekly",
-      "monthly": "Monthly"
-    }
+    "invalidValues": "Invalid values."
   },
   "taskDetail": {
-    "taskTitle": "Task title",
-    "description": "Description",
-    "categories": "Categories",
-    "estimateMin": "Estimate (min)",
     "dueDate": "Due date",
     "recurring": "Recurring",
     "done": "Done",
     "recurrence": "Recurrence",
-    "repeatEvery": "Repeat every",
-    "freqOff": "— off —",
-    "for": "for",
-    "times": "time(s)",
     "starting": "starting",
     "makeRecurring": "Make recurring",
     "updateRecurrence": "Update recurrence",
@@ -131,11 +131,6 @@
     "endAfterStart": "End must be after start.",
     "confirmSplit": "This task is split into {count} blocks. They will become independent instances of the recurrence. Continue?",
     "confirmStop": "This recurring task will be split into {count} separate task(s); unplanned, undone occurrences will be lost. Continue?",
-    "freqUnit": {
-      "daily": "day(s)",
-      "weekly": "week(s)",
-      "monthly": "month(s)"
-    },
     "status": {
       "todo": "to-do",
       "done": "done",
@@ -144,7 +139,6 @@
   },
   "projects": {
     "addProject": "+ Project",
-    "addTask": "+ Add task",
     "addTaskShort": "+ Task",
     "addSubproject": "+ Subproject",
     "categoriesManagement": "Categories Management",
@@ -171,13 +165,9 @@
     "doneStat": "{pct}% done",
     "loggedStat": "{pct}% logged",
     "tasks": "Tasks",
-    "noTasks": "No tasks.",
-    "noEphemeralTasks": "No ephemeral tasks.",
     "markTodo": "Mark to-do",
     "markDone": "Mark done",
     "recurring": "Recurring",
-    "planned": "Planned",
-    "backlog": "Backlog",
     "back": "Back",
     "archive": "Archive",
     "statusActive": "Active",
@@ -185,6 +175,48 @@
     "statusDone": "Done",
     "statusCancelled": "Cancelled",
     "statusArchived": "Archived"
+  },
+  "projectSelect": {
+    "filter": "Type to filter…"
+  },
+  "projectGrid": {
+    "colName": "Subproject",
+    "colStatus": "Status",
+    "colCategories": "Categories",
+    "colColor": "Color",
+    "newPlaceholder": "New subproject — type and press Enter",
+    "open": "Open subproject"
+  },
+  "grid": {
+    "colName": "Task",
+    "colCategories": "Categories",
+    "colEstimate": "Est. (min)",
+    "colDue": "Due",
+    "colSubproject": "Subproject",
+    "colDone": "Done",
+    "newTaskPlaceholder": "New task — type and press Enter",
+    "ownTasks": "Direct tasks",
+    "open": "Open details",
+    "groupByLabel": "Group by",
+    "sortByLabel": "Sort by",
+    "ascending": "Ascending",
+    "descending": "Descending",
+    "noDate": "No date",
+    "uncategorized": "Uncategorized",
+    "groupBy": {
+      "subproject": "Subproject",
+      "date": "Date",
+      "week": "Week",
+      "month": "Month",
+      "category": "Category",
+      "none": "No grouping"
+    },
+    "sortBy": {
+      "alpha": "Alphabetical",
+      "added": "Date added",
+      "estimate": "Time estimate",
+      "due": "Due date"
+    }
   },
   "categories": {
     "title": "Categories",
@@ -198,6 +230,7 @@
   },
   "categoryPicker": {
     "none": "No categories",
+    "filter": "Type to filter…",
     "empty": "No categories yet.",
     "inherited": "inherited",
     "addChildTitle": "Add a child category",
@@ -216,8 +249,8 @@
   "calendarGrid": {
     "overdue": "Overdue",
     "reminderDragHint": "Drag onto the calendar to reschedule, or click to open",
-    "overdueSince": "due {since}",
-    "reschedule": "Reschedule",
+    "overdueSince": "({since})",
+    "reschedule": "Resc.",
     "allDay": "All day",
     "show": "Show",
     "rangeOf": "{start}–{end} of {total}",

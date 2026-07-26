@@ -28,7 +28,8 @@ import type { MenuAction } from '@/components/calendar/contextMenu.types';
 
 const { t } = useI18n();
 const store = useCalendarStore();
-const { view, mode, anchor, occurrences, backlog, reminders, loading, error, toast, window: visibleWindow } = storeToRefs(store);
+const { view, mode, anchor, occurrences, backlog, recurringUnplanned, reminders, loading, error, toast, window: visibleWindow } =
+  storeToRefs(store);
 
 // Auto-dismiss the rejected-gesture toast after a few seconds (restart on each new one).
 let toastTimer: number | undefined;
@@ -113,19 +114,22 @@ const menu = ref<{ open: boolean; x: number; y: number; block: CalendarBlock | n
   block: null,
 });
 
-// --- Drag-to-schedule (backlog tasks OR overdue reminders) ------------------
-// Both are dragged onto a grid to schedule a moment. A backlog task schedules a
-// fresh block; an overdue reminder reschedules (recurrent -> custom occurrence,
-// non-recurrent -> split) exactly like the Reschedule action, without a button.
-type DragItem = { kind: 'backlog'; task: BacklogTaskDto } | { kind: 'reminder'; reminder: ReminderDto };
+// --- Drag-to-schedule (backlog / recurring tray tasks OR overdue reminders) ------
+// Each is dragged onto a grid to schedule a moment. A backlog task schedules a fresh
+// block; a recurring-tray task adds a one-off custom occurrence this week; an overdue
+// reminder reschedules (recurrent -> custom occurrence, non-recurrent -> split).
+type DragItem =
+  | { kind: 'backlog'; task: BacklogTaskDto }
+  | { kind: 'recurring'; task: BacklogTaskDto }
+  | { kind: 'reminder'; reminder: ReminderDto };
 
 const timeGridRef = ref<InstanceType<typeof TimeGrid> | null>(null);
 const monthGridRef = ref<InstanceType<typeof MonthGrid> | null>(null);
 const drag = ref<{ item: DragItem; x: number; y: number } | null>(null);
 
 const dragDurationMinutes = (item: DragItem): number =>
-  item.kind === 'backlog' ? item.task.estimatedMinutes ?? 60 : 60;
-const dragLabel = (item: DragItem): string => (item.kind === 'backlog' ? item.task.title : item.reminder.title);
+  (item.kind === 'reminder' ? item.reminder.estimatedMinutes : item.task.estimatedMinutes) ?? 60;
+const dragLabel = (item: DragItem): string => (item.kind === 'reminder' ? item.reminder.title : item.task.title);
 
 const onDragMove = (event: PointerEvent): void => {
   if (drag.value) {
@@ -155,11 +159,27 @@ const onDragUp = (event: PointerEvent): void => {
   };
   if (current.item.kind === 'backlog') {
     const task = current.item.task;
-    store.apply(() => scheduleOccurrence(task.itemId, { occurrenceDate: null, ...placement }));
+    // A backlog task with no dueDate inherits the new block's end (linked); one that
+    // already has a dueDate keeps it.
+    const dueDate = task.dueDate ? new Date(task.dueDate) : placement.timeEnd;
+    store.apply(() => scheduleOccurrence(task.itemId, { occurrenceDate: null, ...placement, dueDate }));
+  } else if (current.item.kind === 'recurring') {
+    const task = current.item.task;
+    // A recurring task absent this week: add a one-off custom occurrence at the drop,
+    // its dueDate linked to the block end.
+    store.apply(() =>
+      scheduleOccurrence(task.itemId, { occurrenceDate: drop.start, ...placement, dueDate: placement.timeEnd }),
+    );
   } else {
     const reminder = current.item.reminder;
     store.apply(() =>
-      scheduleOccurrence(reminder.itemId, { occurrenceDate: reminder.isRecurrent ? drop.start : null, ...placement }),
+      scheduleOccurrence(reminder.itemId, {
+        occurrenceDate: reminder.isRecurrent ? drop.start : null,
+        ...placement,
+        // Recurrent: cancel the original rule slot so it does not duplicate the new moment.
+        supersedeOccurrenceDate:
+          reminder.isRecurrent && reminder.occurrenceDate ? new Date(reminder.occurrenceDate) : undefined,
+      }),
     );
   }
 };
@@ -173,6 +193,8 @@ const startDrag = (item: DragItem, event: PointerEvent): void => {
 };
 const onBacklogDragStart = (payload: { task: BacklogTaskDto; event: PointerEvent }): void =>
   startDrag({ kind: 'backlog', task: payload.task }, payload.event);
+const onRecurringDragStart = (payload: { task: BacklogTaskDto; event: PointerEvent }): void =>
+  startDrag({ kind: 'recurring', task: payload.task }, payload.event);
 const onReminderDragStart = (payload: { reminder: ReminderDto; event: PointerEvent }): void =>
   startDrag({ kind: 'reminder', reminder: payload.reminder }, payload.event);
 
@@ -292,6 +314,8 @@ const openCreate = (start: Date, end: Date): void => {
     isBlocking: true,
     allDay: false,
     recurrence: emptyRecurrence(),
+    supersedeStaleOccurrences: true,
+    generatesReminder: true,
     categoryIds: [],
   };
 };
@@ -338,6 +362,8 @@ const openEdit = async (block: CalendarBlock): Promise<void> => {
     isBlocking: block.isBlocking,
     allDay: block.allDay,
     recurrence: parseRrule(item.rrule),
+    supersedeStaleOccurrences: item.supersedeStaleOccurrences,
+    generatesReminder: item.generatesReminder,
     categoryIds: item.categoryIds, // now carried by ItemDto (brief §8)
   };
 };
@@ -348,10 +374,10 @@ const overdueOccurrenceIds = computed(() => new Set(reminders.value.map((reminde
 // past-due tasks, not just entries from the anchor day forward).
 const overdueListBlocks = computed(() => reminders.value.map(reminderToCalendarBlock));
 
-// Reschedule an overdue task from the overdue list: add a resumption moment WITHOUT
-// touching the original block. Recurrent -> a new custom occurrence (a same-day one
-// supersedes the overdue instance server-side); non-recurrent -> a split on the same
-// occurrence (stays overdue until marked done).
+// Reschedule an overdue task. Recurrent -> a new custom occurrence at the new moment,
+// and the original rule slot is cancelled so it does not project as a duplicate
+// (supersedeOccurrenceDate). Non-recurrent -> a split on the same occurrence (stays
+// overdue until marked done).
 const onReminderReschedule = (payload: { reminder: ReminderDto; start: Date; end: Date }): void => {
   const { reminder, start, end } = payload;
   store.apply(() =>
@@ -363,6 +389,8 @@ const onReminderReschedule = (payload: { reminder: ReminderDto; start: Date; end
       isBlocking: true,
       dueDate: null,
       timezone: browserTimezone(),
+      supersedeOccurrenceDate:
+        reminder.isRecurrent && reminder.occurrenceDate ? new Date(reminder.occurrenceDate) : undefined,
     }),
   );
 };
@@ -395,6 +423,8 @@ const onReminder = async (payload: { reminder: ReminderDto }): Promise<void> => 
     isBlocking: true,
     allDay: false,
     recurrence: parseRrule(item.rrule),
+    supersedeStaleOccurrences: item.supersedeStaleOccurrences,
+    generatesReminder: item.generatesReminder,
     categoryIds: item.categoryIds,
   };
 };
@@ -411,11 +441,15 @@ const menuActions = computed<MenuAction[]>(() => {
   if (!readonly.value) {
     actions.push({ id: 'duplicate', label: t('calendar.menu.duplicate') });
   }
-  if (occurrence.type === 'task') {
+  // A cancelled occurrence (task OR event) can be restored to active — reversing a skip
+  // or a recurring delete. This is the sole status action for a cancelled item.
+  if (occurrence.status === 'cancelled') {
+    actions.push({ id: 'reopen', label: t('calendar.menu.restore') });
+  } else if (occurrence.type === 'task') {
     actions.push(occurrence.status === 'done' ? { id: 'reopen', label: t('calendar.menu.markTodo') } : { id: 'done', label: t('calendar.menu.markDone') });
     // Skip keeps the row (marks cancelled) — only for non-recurring; a recurring
     // instance is skipped through "Delete occurrence" below (they are equivalent).
-    if (occurrence.status !== 'cancelled' && !occurrence.isRecurrent) {
+    if (!occurrence.isRecurrent) {
       actions.push({ id: 'skip', label: t('calendar.menu.skip') });
     }
   }
@@ -632,7 +666,13 @@ const onFormUpdate = (payload: UpdateSubmit): void => {
         </div>
       </div>
 
-      <BacklogSidebar :tasks="backlog" :projects="projects" @dragstart="onBacklogDragStart" />
+      <BacklogSidebar
+        :tasks="backlog"
+        :recurring="recurringUnplanned"
+        :projects="projects"
+        @dragstart="onBacklogDragStart"
+        @recurring-dragstart="onRecurringDragStart"
+      />
     </div>
 
     <CalendarContextMenu

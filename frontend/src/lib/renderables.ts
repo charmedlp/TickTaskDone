@@ -52,7 +52,7 @@ const plannedBlocks = (occurrence: OccurrenceViewDto): CalendarBlock[] => {
         start,
         end: new Date(start.getTime() + minutes * 60_000),
         allDay: false,
-        isBlocking: false,
+        isBlocking: occurrence.blockingByDefault, // the task's default, so an unplaced slot reads correctly
         isVirtual: true,
       },
     ];
@@ -107,6 +107,7 @@ export const reminderToCalendarBlock = (reminder: ReminderDto): CalendarBlock =>
     estimatedMinutes: null,
     timezone: null,
     isRecurrent: reminder.isRecurrent,
+    blockingByDefault: false, // a reminder list-entry is a deadline marker, never a blocking slot
     idItemOccurrence: reminder.idItemOccurrence,
     occurrenceDate: reminder.occurrenceDate,
     status: reminder.status,
